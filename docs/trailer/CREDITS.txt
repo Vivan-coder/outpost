@@ -17,3 +17,6 @@ OTHER ASSETS
 
 AI USE DISCLOSURE
 - The trailer pipeline (director script, recorder, music generator, compose and check scripts) and the game were written with Claude Code (Anthropic). No AI-generated images, video or voice are used. Tick the AI-use disclosure on the submission form.
+
+NOTE ON THE CURRENT EXPORT (added later)
+- The current export may use a third-party song chosen by the author for a single private, physical demo screening: "Ori, Lost in the Storm (feat. Aeralie Brighton)" by Gareth Coker (Ori and the Will of the Wisps soundtrack). It is NOT licensed for publication. Do not upload that version online or attach it to the submission form; regenerate with the original music (delete tools/trailer/music-override.*, run: node tools/trailer/compose.mjs 1).
