@@ -53,7 +53,7 @@ export function createTerrain(): THREE.Mesh {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     pos.setY(i, heightAt(x, z));
-    const g = 0.42 + valueNoise(x * 0.3, z * 0.3) * 0.16 + valueNoise(x * 0.03 + 9, z * 0.03) * 0.14;
+    const g = 0.3 + valueNoise(x * 0.3, z * 0.3) * 0.13 + valueNoise(x * 0.03 + 9, z * 0.03) * 0.12;
     colors[i * 3] = g; colors[i * 3 + 1] = g; colors[i * 3 + 2] = g * 1.02;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));

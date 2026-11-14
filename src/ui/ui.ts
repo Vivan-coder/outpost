@@ -35,12 +35,12 @@ const utc = (iso: string) => iso.replace('T', ' ').replace('Z', '');
 // Turns "[E]" in a translated string into a key cap. Text is ours, never user input.
 const keycaps = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\[([^\]]+)\]/g, '<kbd>$1</kbd>');
 
-const BARS: { key: 'power' | 'air' | 'food' | 'radiation' | 'health'; color: string }[] = [
-  { key: 'power', color: '#ffd24a' },
-  { key: 'air', color: '#5ad1ff' },
-  { key: 'food', color: '#7be07b' },
-  { key: 'health', color: '#c77dff' },
-  { key: 'radiation', color: '#ff6b5a' },
+const BARS: { key: 'power' | 'air' | 'food' | 'radiation' | 'health'; color: string; icon: string }[] = [
+  { key: 'power', color: '#ffd24a', icon: '⚡' },
+  { key: 'air', color: '#5ad1ff', icon: '💧' },
+  { key: 'food', color: '#7be07b', icon: '🌱' },
+  { key: 'health', color: '#c77dff', icon: '❤' },
+  { key: 'radiation', color: '#ff6b5a', icon: '☢' },
 ];
 const UPGRADES: UpgradeKey[] = ['engineering', 'solar', 'lifeSupport', 'greenhouse', 'battery', 'tank', 'station'];
 export const factText = (id: string | null): string | null => (id && (factsJson.facts as Record<string, unknown>)[id] ? t(('fact_' + id) as TextKey) : null);
@@ -65,7 +65,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     fill.style.background = b.color;
     track.appendChild(fill);
     const value = el('span', 'value');
-    row.append(el('span', 'label', t(b.key === 'health' ? 'res_health' : b.key)), track, value);
+    row.append(el('span', 'label', `${b.icon} ${t(b.key === 'health' ? 'res_health' : b.key)}`), track, value);
     $('bars').appendChild(row);
     bars[b.key] = { fill, value, row, last: -1 };
   }
@@ -86,8 +86,10 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   const menu = $('menu'), menuCard = $('menuCard'), overlay = $('overlay'), overlayCard = $('overlayCard');
   const banner = $('banner'), shelterBtn = $('shelterBtn'), storm = $('storm');
   const actBtn = $('actBtn'), taskBox = $('task'), seq = $('seq'), gauge = $('gauge');
-  let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = '', lastPrompt = '', lastTask = '', lastGoals = '';
+  let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = null as string | null, lastPrompt = '', lastTask = '', lastGoals = '';
   let menuKind: 'build' | 'crew' | 'pause' | 'upgrade' | null = null;
+  let goalsOpen = false, lastSim: SimState | null = null;
+  const marks = new Map<string, HTMLElement>();
   let actHeld = false;
 
   const press = (id: string, fn: () => void) => $(id).addEventListener('click', (e) => { e.stopPropagation(); fn(); });
@@ -163,11 +165,15 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       return false;
     },
 
-    update(sim: SimState, nowS: number, crewSafe: number): void {
+    toggleGoals(): void { goalsOpen = !goalsOpen; lastGoals = ''; if (lastSim) ui.update(lastSim, 0, 0, true); },
+
+    update(sim: SimState, nowS: number, crewSafe: number, _redraw = false): void {
+      lastSim = sim;
       const cap = caps(sim, cfg);
       setBar('power', sim.power, cap.power, true);
       setBar('air', sim.air, cap.air, true);
       setBar('food', sim.food, cap.food, true);
+      document.body.classList.toggle('lowsupply', sim.air < cap.air * 0.2 || sim.food < cap.food * 0.2 || sim.power <= 0);
       setBar('health', sim.health, 100, true);
       setBar('radiation', sim.radiation, 100, false);
       $('partsValue').textContent = String(sim.parts);
@@ -176,8 +182,10 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       if (sig !== lastGoals) {
         lastGoals = sig;
         const box = $('goals');
-        box.replaceChildren(el('b', '', t('goalsTitle')));
-        for (const g of cfg.goals) {
+        const head = el('button', 'goalsHead', `${sim.goalsDone.length > 0 ? '★' : '☆'} ${sim.goalsDone.length}/${cfg.goals.length} ${t('goalsTitle')} ${goalsOpen ? '▴' : '▾'}`);
+        head.addEventListener('click', () => ui.toggleGoals());
+        box.replaceChildren(head);
+        if (goalsOpen) for (const g of cfg.goals) {
           const done = sim.goalsDone.includes(g.id);
           const n = g.kind.endsWith('Streak') ? Math.round(g.target / cfg.solLength) : g.target;
           box.appendChild(el('div', done ? 'done' : '', (done ? '★ ' : '☆ ') + t(('goal_' + g.id) as TextKey, { n })));
@@ -278,6 +286,32 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     },
 
     flash(text: string, nowS: number, seconds: number): void { flashText = text; flashUntil = nowS + seconds; },
+
+    // Floating objective markers: on screen they sit over the thing, off screen they point the way.
+    setMarks(items: { id: string; label: string; color: string; x: number; y: number; dist: number; edge: boolean; angle: number }[]): void {
+      const box = $('marks');
+      const seen = new Set<string>();
+      for (const m of items) {
+        seen.add(m.id);
+        let n = marks.get(m.id);
+        if (!n) { n = el('div', 'mark'); n.append(el('i'), el('span')); box.appendChild(n); marks.set(m.id, n); }
+        n.style.transform = `translate(${m.x}px,${m.y}px)`;
+        n.style.setProperty('--c', m.color);
+        n.classList.toggle('edge', m.edge);
+        (n.firstElementChild as HTMLElement).textContent = m.edge ? '▲' : '';
+        (n.firstElementChild as HTMLElement).style.transform = m.edge ? `rotate(${m.angle}rad)` : '';
+        (n.lastElementChild as HTMLElement).textContent = `${m.label} ${Math.round(m.dist)}m`;
+      }
+      for (const [id, n] of marks) if (!seen.has(id)) { n.remove(); marks.delete(id); }
+    },
+
+    popup(text: string): void {
+      const p = el('div', 'popup', text);
+      $('popups').appendChild(p);
+      setTimeout(() => p.remove(), 1600);
+    },
+
+    gainText: (r: Reward): string => gainText(r),
 
     setPlacing(active: boolean, ok: boolean): void {
       document.body.classList.toggle('placing', active);

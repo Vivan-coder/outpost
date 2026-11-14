@@ -154,7 +154,7 @@ export function createSim(cfg: LevelConfig): SimState {
     history: [], outbox: [], nextId: 1, rng: cfg.seed >>> 0, sampleAt: 0,
   };
   for (const m of cfg.startModules) s.modules.push({ id: s.nextId++, type: m.type, x: m.x, z: m.z, broken: false, brokenFor: 0 });
-  s.nextJobAt = cfg.jobGap[0] + 10;
+  s.nextJobAt = 6; // something to do almost immediately
   return s;
 }
 

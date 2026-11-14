@@ -22,7 +22,17 @@
     #left .pills button { padding: 7px 11px; border-radius: 999px; background: #14306be6; border: 1px solid #7fb0ff; font-size: 11px; font-weight: 800; }
     #jobs, #sourceCard, #goals { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; background: var(--panel);
       border: 1px solid var(--line); font-size: 11px; line-height: 1.35; pointer-events: none; }
-    #goals b { display: block; color: #9cc4ff; margin-bottom: 3px; font-size: 12px; } #goals div.done { color: var(--good); }
+    #goals { pointer-events: auto; } #goals .goalsHead { background: none; padding: 0; font-size: 12px; font-weight: 700; color: #9cc4ff; width: 100%; text-align: left; }
+    #goals div { padding: 2px 0; } #goals div.done { color: var(--good); }
+    #alert { position: fixed; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 90px 10px #ff2a1a; transition: opacity .4s; }
+    body.lowsupply #alert { opacity: .55; animation: blink 1.2s steps(2) infinite; }
+    #marks { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+    .mark { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; margin: -14px 0 0 -40px; width: 80px; --c: #fff; }
+    .mark i { font-style: normal; color: var(--c); font-size: 18px; line-height: 18px; text-shadow: 0 0 6px #000; }
+    .mark span { font-size: 10px; font-weight: 800; color: #fff; background: #000a; border: 1px solid var(--c); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+    #popups { position: fixed; left: 50%; top: 38%; transform: translateX(-50%); pointer-events: none; display: flex; flex-direction: column; align-items: center; }
+    .popup { font-size: 22px; font-weight: 900; color: #ffe27a; text-shadow: 0 2px 8px #000; animation: floatup 1.6s ease-out forwards; }
+    @keyframes floatup { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-70px); } }
     #btnFF.on { background: #2e9d57cc !important; border-color: #fff !important; }
     #jobs b { display: block; color: var(--accent); margin-bottom: 3px; font-size: 12px; }
     #jobs div { padding: 2px 0; } #jobs div.urgent { color: var(--bad); font-weight: 700; }
@@ -135,6 +145,9 @@
 <body>
   <canvas id="c"></canvas>
   <div id="storm"></div>
+  <div id="alert"></div>
+  <div id="marks"></div>
+  <div id="popups"></div>
   <div id="left">
     <div id="fps"></div>
     <div class="pills"><button id="pauseBtn"></button><button id="dataBtn"></button></div>

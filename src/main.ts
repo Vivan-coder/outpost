@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { createTerrain } from './render/terrain';
-import { createStars, createEarth } from './render/sky';
+import { createStars, createEarth, createSun } from './render/sky';
 import { createInput } from './game/input';
 import { Player, type Blocker } from './game/player';
 import { World, type BuildingView } from './game/world';
 import { Crew } from './game/crew';
 import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
-import { assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, type ModuleType, type SimState } from './sim/sim.ts';
+import { assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
 import { STATION, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi } from './ui/ui';
@@ -27,6 +27,7 @@ const hintEl = document.getElementById('hint') as HTMLElement;
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 
@@ -36,7 +37,7 @@ scene.background = sky;
 const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 2000);
 
 // Harsh single sun, almost no fill: there is no atmosphere to scatter light on the Moon.
-const sun = new THREE.DirectionalLight(0xfff4e0, 3.2);
+const sun = new THREE.DirectionalLight(0xfff4e0, 2.7);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
 const sc = sun.shadow.camera;
@@ -44,7 +45,9 @@ sc.left = -34; sc.right = 34; sc.top = 34; sc.bottom = -34; sc.near = 1; sc.far 
 sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
 scene.add(new THREE.HemisphereLight(0x223355, 0x111111, 0.45));
-scene.add(createTerrain(), createStars(), createEarth());
+const sunDisc = createSun();
+scene.add(createTerrain(), createStars(), createEarth(), sunDisc);
+const SUN_DIR = new THREE.Vector3(60, 45, 30).normalize();
 const SUN_CALM = new THREE.Color(0xfff4e0), SUN_STORM = new THREE.Color(0xff8a4a);
 
 const level = moon;
@@ -206,6 +209,7 @@ function finishTask(tg: TaskTarget, result: TaskResult): void {
     if (tg.kind === 'repair') { if (m) fix(sim, m.id); } else if (tg.jobId !== null) completeJob(sim, level, tg.jobId);
     world.pulse(tg.moduleId);
     sfx.fix();
+    if (tg.kind !== 'repair') { const def = level.tasks.find((tk) => tk.id === tg.kind); if (def) ui.popup(ui.gainText(def.reward)); } else ui.popup('✔');
     ui.toast(tg.kind === 'repair' ? t('taskDone_repair', { name: m ? modName(m.type) : '' }) : t('taskDone', { task: t(`task_${tg.kind}` as TextKey) }), 'good');
   } else {
     if (result === 'failed') sfx.broke();
@@ -242,6 +246,7 @@ addEventListener('keydown', (e) => {
     case 'KeyG': if (sim.storm?.phase === 'warning') byId('shelterBtn').click(); break;
     case 'KeyH': if (lastBot) ui.toast(lastBot, 'bot'); break;
     case 'KeyF': toggleFF(); break;
+    case 'KeyJ': ui.toggleGoals(); break;
     case 'KeyK': skipAhead(); break;
     case 'Escape': if (placing) placing = null; else openPause(); break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Numpad1': case 'Numpad2': case 'Numpad3':
@@ -254,8 +259,11 @@ byId('btnFF').addEventListener('click', () => toggleFF());
 byId('btnSkip').addEventListener('click', () => skipAhead());
 addEventListener('blur', () => keys.clear());
 // Esc while the mouse is captured only releases the mouse; treat that as "pause".
+let wasLocked = false;
 document.addEventListener('pointerlockchange', () => {
-  if (!document.pointerLockElement && !ui.blocking() && !placing && sim.status === 'running') openPause();
+  const locked = !!document.pointerLockElement;
+  if (!locked && wasLocked && !ui.blocking() && !placing && sim.status === 'running') openPause();
+  wasLocked = locked;
 });
 // Desktop: with the mouse captured, a click places the module.
 canvas.addEventListener('mousedown', () => { if (placing && document.pointerLockElement === canvas) byId('placeBtn').click(); });
@@ -374,6 +382,45 @@ function updatePrompt(): void {
   }
 }
 
+// Objective markers: broken machines, waiting jobs, the console when you can afford an upgrade, and the shelter in a storm.
+const markVec = new THREE.Vector3();
+function updateMarks(): void {
+  const items: { id: string; label: string; color: string; x: number; y: number; dist: number; edge: boolean; angle: number }[] = [];
+  const w = innerWidth, h = innerHeight;
+  const add = (id: string, label: string, color: string, x: number, y: number, z: number, minDist = 5) => {
+    const dist = Math.hypot(x - player.pos.x, z - player.pos.z);
+    if (dist < minDist || placing) return;
+    markVec.set(x, y, z).project(camera);
+    const behind = markVec.z > 1;
+    let sx = (markVec.x * 0.5 + 0.5) * w, sy = (-markVec.y * 0.5 + 0.5) * h;
+    if (behind) { sx = w - sx; sy = h - sy; }
+    const m = 46;
+    const off = behind || sx < m || sx > w - m || sy < m + 60 || sy > h - m - 70;
+    let angle = 0;
+    if (off) {
+      const cx = w / 2, cy = h / 2;
+      let dx = sx - cx, dy = sy - cy;
+      if (behind) { dx = -dx; dy = -dy; if (Math.abs(dx) < 1 && Math.abs(dy) < 1) dx = 1; }
+      angle = Math.atan2(dy, dx) + Math.PI / 2;
+      const k = Math.min((w / 2 - m) / (Math.abs(dx) || 1e-6), (h / 2 - m - 60) / (Math.abs(dy) || 1e-6));
+      sx = cx + dx * k; sy = cy + dy * k;
+    }
+    items.push({ id, label, color, x: sx, y: sy, dist, edge: off, angle });
+  };
+  for (const m of sim.modules) if (m.broken) add(`b${m.id}`, '!', '#ff5a4a', m.x, 3.5, m.z);
+  for (const j of sim.jobs) {
+    const m = sim.modules.find((mod) => mod.id === j.moduleId);
+    if (!m) continue;
+    const spot = (m.type === 'habitat' || m.type === 'shelter') ? TASK_SPOT[j.task] : { x: 0, z: 0 };
+    add(`j${j.id}`, '★', '#ffc840', m.x + spot.x, (m.type === 'habitat' || m.type === 'shelter') ? 2.2 : 3.2, m.z + spot.z);
+  }
+  const cheapest = Math.min(...(['engineering', 'solar', 'lifeSupport', 'greenhouse', 'battery', 'tank', 'station'] as const).map((k) => upgradeCost(sim, level, k) ?? 99));
+  const hab = world.buildings.find((v) => v.type === 'habitat');
+  if (hab && sim.research >= cheapest) add('con', t('btnAct_console'), '#7fe0ff', hab.x + STATION.engineering.x, 2.4, hab.z + STATION.engineering.z, 3);
+  if (sim.storm) { const sh = world.buildings.find((v) => v.type === 'shelter'); if (sh && sim.playerExposure > 0) add('shl', t('lbl_shelter'), '#6be08a', sh.x, 3.5, sh.z, 2); }
+  ui.setMarks(items);
+}
+
 function jobList(): { text: string; urgent: boolean }[] {
   const out: { text: string; urgent: boolean }[] = [];
   for (const m of sim.modules) if (m.broken) out.push({ text: t('job_repair', { name: modName(m.type) }), urgent: true });
@@ -454,6 +501,7 @@ renderer.setAnimationLoop((now) => {
     ui.setRing(runner.stage === 'hold' ? runner.hold : 0);
     ui.renderTask(runner, isTouch());
     updatePrompt();
+    updateMarks();
 
     // Storm: siren during the warning, clicks from the radiation counter when exposed, and a red sky.
     if (sim.storm?.phase === 'warning' && clock >= sirenAt) { sirenAt = clock + 12; sfx.alarm(); }
@@ -466,6 +514,8 @@ renderer.setAnimationLoop((now) => {
     if (hintTimer > 0) { hintTimer -= dt; if (hintTimer <= 0) hintEl.style.display = 'none'; }
   }
   input.consume();
+
+  sunDisc.position.copy(camera.position).addScaledVector(SUN_DIR, 900);
 
   // Shadow frustum follows the player so one small map covers what is nearby.
   sun.target.position.copy(player.pos);

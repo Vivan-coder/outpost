@@ -97,7 +97,7 @@ export const moon: LevelConfig = {
   }),
   // Game events, not NASA data.
   events: [
-    { at: 50, kind: 'failure', target: 'solar' },
+    { at: 38, kind: 'failure', target: 'solar' },
     { at: 432, kind: 'failure', target: 'lifeSupport' },
     { at: 455, kind: 'meteor', count: 2 },
   ],
