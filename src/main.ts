@@ -17,10 +17,11 @@ import { WorkSession, type WorkEnv } from './game/work';
 import type { WorkKind } from './data/workTasks';
 import { applyEffects, shelterLeak, shieldF, caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
 import { STATION_SPOTS, TASK_SPOT } from './game/layout';
-import { moon, solarEvent } from './data/moon.ts';
+import { moon, stormsForSeed } from './data/moon.ts';
+import { mars, MARS_DECISIONS, MARS_GRAVITY } from './data/mars.ts';
 import { createUi, factText } from './ui/ui';
-import { cardInfo, researchFor, issDayHigh, issDayLow, type CardId } from './ui/cards';
-import { runMissionControl, controlRoom, type McContext } from './ui/mission';
+import { cardInfo, researchFor, setCardStorm, issDayHigh, issDayLow, type CardId } from './ui/cards';
+import { runMissionControl, controlRoom, marsDecision, type McContext } from './ui/mission';
 import { DECISIONS, planDecisions, seeded } from './data/decisions';
 import { warnLines, stormLines, type Line } from './data/talk';
 import { makeQuiz } from './data/quiz';
@@ -65,15 +66,19 @@ scene.add(sun, sun.target);
 scene.add(new THREE.HemisphereLight(0x223355, 0x111111, 0.45));
 const sunDisc = createSun();
 scene.add(createRocks());
-scene.add(createFarGround(), createTerrain(), createStars(), createEarth(), sunDisc);
+const terrainMesh = createTerrain(), starsPts = createStars(), earthMesh = createEarth();
+scene.add(createFarGround(), terrainMesh, starsPts, earthMesh, sunDisc);
 const SUN_DIR = new THREE.Vector3(60, 45, 30).normalize();
 const SUN_CALM = new THREE.Color(0xfff4e0), SUN_STORM = new THREE.Color(0xff8a4a);
 
-const level = moon;
+const isMars = new URLSearchParams(location.search).has('mars');
+const level = isMars ? mars : moon;
+if (isMars) document.body.classList.add('mars');
 // Every run uses a seed: it changes the order of the decision cards and how fast dust builds up. ?seed=123 repeats a run.
 const runSeed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 1e9);
 level.seed = runSeed;
-level.dustRate = 0.8 + seeded(runSeed)() * 0.6;
+if (!isMars && !new URLSearchParams(location.search).has('judge')) level.storms = stormsForSeed(new URLSearchParams(location.search).has('classic') ? 0 : runSeed);
+if (!isMars) level.dustRate = 0.8 + seeded(runSeed)() * 0.6;
 const sim = createSim(level);
 // Testing aid: ?skip=150 starts the mission that many seconds in (nobody acts during the skipped time).
 const skipTo = Number(new URLSearchParams(location.search).get('skip')) || 0;
@@ -667,17 +672,61 @@ if (judge) {
   byId('judgeReset').textContent = t('btnJudgeReset');
   byId('judgeReset').addEventListener('click', () => location.reload());
 } else ui.setCollected(saved.cards);
+function showMarsBriefing(): void {
+  ui.card({
+    title: t('marsTitle'),
+    paragraphs: [t('marsBody'), t('fact_gravityMars'), t('fact_commsDelay'), t('fact_dustOpportunity'), t('marsGoal')],
+    button: t('btnStart'),
+    onClose: () => { unlockAudio(); dayFlow(true); },
+    extra: [{ label: t('marsBack'), onClick: () => { location.href = location.pathname; } }],
+  });
+}
 function showJudge(): void {
   ui.card({ title: t('judgeTitle'), paragraphs: [t('judgeBody')], button: t('btnStart'), onClose: () => { unlockAudio(); dayFlow(true); } });
 }
-const skipIntroNow = params.has('skip') || params.has('nointro') || judge;
+// ---- Mars preview ----
+const radio = { until: 0, id: '', best: null as null | typeof MARS_DECISIONS[number]['best'], asked: new Set<string>() };
+const radioEl = byId('radio');
+function radioDelaySeconds(): number { return Math.max(6, Math.round((level.commsDelay ?? 20) / commsFOf())); }
+function commsFOf(): number { return Math.max(0.5, Math.min(1.5, sim.budget.comms / 15)); }
+function updateRadio(): void {
+  if (!isMars) return;
+  const left = radio.until - sim.time;
+  radioEl.textContent = left > 0 ? `${t('radioLabel')} · ${t('radioWaiting', { s: Math.ceil(left) })}` : `${t('radioLabel')} · ${t('radioIdle', { s: radioDelaySeconds() })}`;
+  if (radio.best && left <= 0) {
+    const best = radio.best; radio.best = null;
+    applyEffects(sim, level, best);
+    ui.toast(t('radioReply', { a: t(`mars_${radio.id}_ans` as TextKey) }) + ' ' + t('marsReplyApplied'), 'bot'); sfx.allClear();
+  }
+  for (const d of MARS_DECISIONS) {
+    if (!radio.asked.has(d.id) && sim.time >= d.at && !ui.blocking()) {
+      radio.asked.add(d.id);
+      unlockPointer();
+      const delay = radioDelaySeconds();
+      marsDecision(d.id, delay, { a: d.a, wait: d.wait }, (choice) => {
+        if (choice === 'a') applyEffects(sim, level, d.a);
+        else { applyEffects(sim, level, d.wait); radio.until = sim.time + delay; radio.id = d.id; radio.best = d.best; }
+      }, (info) => ui.toast(`${t('srcName', { s: info.source })} · ${info.url}`, 'bot'));
+      break;
+    }
+  }
+}
+if (isMars) {
+  player.gravity = MARS_GRAVITY;
+  (terrainMesh.material as THREE.MeshStandardMaterial).color.setHex(0xe0a070);
+  starsPts.visible = false;
+  earthMesh.scale.setScalar(0.12); (earthMesh.material as THREE.MeshStandardMaterial).emissive.setHex(0x6fa0ff);
+  sunDisc.scale.setScalar(0.55);
+  sun.color.setHex(0xffd9a8);
+}
+const skipIntroNow = params.has('skip') || params.has('nointro') || judge || isMars;
 if (skipIntroNow) {
   const l = createLander();
   l.group.position.set(LANDER_AT.x, 0, LANDER_AT.z); l.group.remove(l.flame, l.light); l.hatch.rotation.z = -1.7; l.ladder.visible = true;
   scene.add(l.group);
   world.extraBlockers.push({ x: LANDER_AT.x, z: LANDER_AT.z, r: 2.4 });
   world.sync(sim);
-  if (judge) showJudge(); else showTutorial();
+  if (isMars) showMarsBriefing(); else if (judge) showJudge(); else showTutorial();
 } else {
   ui.card({
     title: t('introTitle'),
@@ -716,6 +765,7 @@ function handleEvents(): void {
       case 'goal': sfx.win(); ui.toast(t('goalDone', { goal: t(`goal_${e.id}` as TextKey, { n: goalN(e.id) }) }), 'good'); break;
       case 'stormWarn': {
         sfx.alarm(); sirenAt = clock + 12; bot('botStorm'); queueTalk(warnLines(level.storms[e.index]), 4, 5);
+        setCardStorm(level.storms[e.index].info);
         ui.collect('donkiFlare');
         ui.toast(t('forecast1', { cls: level.storms[e.index].info.flareClass }), 'bot');
         break;
@@ -726,7 +776,7 @@ function handleEvents(): void {
         ui.toast(t('forecast3'), 'bot');
         ui.collect('donkiSep'); ui.collect('apollo1972'); ui.collect('radMoon');
         if (work && sim.playerExposure > 0) { leaveWork(); ui.toast(t('taskStorm'), 'bad'); }
-        queueTalk(stormLines(level.storms[e.index], Math.max(...solarEvent.gsts.map((g) => g.maxKp)), factText), 6, 6.5);
+        queueTalk(stormLines(level.storms[e.index], level.storms[e.index].info.kp, factText), 6, 6.5);
         if (sim.playerExposure > 0) {
           const tg = runner.target;
           const r = runner.cancel('storm');
@@ -742,7 +792,7 @@ function handleEvents(): void {
         ui.toast(t('stormOver'), 'good');
         {
           const info = level.storms[e.index].info;
-          const kp = Math.max(...solarEvent.gsts.map((g) => g.maxKp));
+          const kp = info.kp;
           unlockPointer();
           ui.card({
             title: t('infoTitle'),
@@ -767,7 +817,7 @@ function handleEvents(): void {
         placing = null;
         if (sim.status === 'won') sfx.win(); else sfx.lose();
         saveProgress(sim);
-        ui.end(sim, () => location.reload());
+        ui.end(sim, () => location.reload(), isMars ? { title: t('marsDone'), label: t('marsBack'), onClick: () => { location.href = location.pathname; } } : sim.status === 'won' ? { label: t('marsNext'), onClick: () => { location.href = location.pathname + '?mars=1'; } } : undefined);
         break;
       }
     }
@@ -873,6 +923,7 @@ const DAY_NOTES = ['exercise2h', 'water90', 'bone1', 'flareScale', 'dustPanels',
 const decisionPlan = planDecisions(14, runSeed);
 function dayFlow(first: boolean): void {
   if (new URLSearchParams(location.search).has('nodash') || xrOn()) return;
+  if (isMars && !first) return; // the preview is short: one power plan, then radio decisions
   const day = sim.day + 1;
   const ctx: McContext = {
     day, report: first ? null : sim.lastDay, choices: first ? [] : choicesToday.splice(0), decisions: decisionPlan[day - 1] ?? [], gentle: day === 1,
@@ -948,6 +999,7 @@ renderer.setAnimationLoop((now) => {
       ui.toast(t('forecast2', { speed: inf.cmeSpeedKmS ?? '?' }), 'bot'); ui.collect('donkiCme');
     }
     if (clock > 25) ui.collect('radIss');
+    updateRadio();
     if (talkQueue.length > 0 && clock >= nextTalkAt) { say(talkQueue.shift()!); nextTalkAt = clock + talkGap; }
     crew.tickSpeech(clock);
 
@@ -985,7 +1037,10 @@ renderer.setAnimationLoop((now) => {
     if (sim.storm?.phase === 'active' && sim.playerExposure > 0 && Math.random() < dt * 22 * sim.playerExposure) sfx.geiger();
     const want = sim.storm ? (sim.storm.phase === 'active' ? 1 : 0.4) : 0;
     skyMix += (want - skyMix) * Math.min(1, dt * 0.8);
-    sky.setRGB(0.2 * skyMix, 0.035 * skyMix, 0.012 * skyMix);
+    const dustLook = sim.dustActive ? 0.55 : 0;
+    skyMix += (dustLook - skyMix) * Math.min(1, dt * 0.5) * (sim.storm ? 0 : 1);
+    if (isMars) sky.setRGB(0.42 * (1 - 0.5 * dustLook) + 0.2 * skyMix, 0.27 * (1 - 0.5 * dustLook) + 0.035 * skyMix, 0.16 * (1 - 0.5 * dustLook) + 0.012 * skyMix);
+    else sky.setRGB(0.2 * skyMix, 0.035 * skyMix, 0.012 * skyMix);
     sun.color.copy(SUN_CALM).lerp(SUN_STORM, skyMix);
 
     if (hintTimer > 0) { hintTimer -= dt; if (hintTimer <= 0) hintEl.style.display = 'none'; }

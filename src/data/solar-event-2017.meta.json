@@ -1,0 +1,39 @@
+{
+  "source": "NASA CCMC DONKI (Space Weather Database Of Notifications, Knowledge, Information)",
+  "sourcePage": "https://ccmc.gsfc.nasa.gov/tools/DONKI/",
+  "apiBase": "https://ccmc.gsfc.nasa.gov/DONKI/WS/get/",
+  "endpoints": [
+    "FLR",
+    "SEP",
+    "CME",
+    "GST"
+  ],
+  "query": {
+    "startDate": "2017-09-04",
+    "endDate": "2017-09-13"
+  },
+  "downloadDate": "2026-11-14",
+  "apiKeyUsed": false,
+  "eventIds": {
+    "flares": [
+      "2017-09-06T11:53:00-FLR-001",
+      "2017-09-10T15:35:00-FLR-001"
+    ],
+    "cmes": [
+      "2017-09-06T12:24:00-CME-001",
+      "2017-09-10T16:09:00-CME-001"
+    ],
+    "seps": [
+      "2017-09-06T23:30:00-SEP-001",
+      "2017-09-10T16:25:00-SEP-001",
+      "2017-09-10T16:45:00-SEP-001",
+      "2017-09-10T20:00:00-SEP-001"
+    ],
+    "gsts": [
+      "2017-09-07T21:00:00-GST-001",
+      "2017-09-08T12:00:00-GST-001"
+    ]
+  },
+  "quality": "DONKI states its real-time information should be considered prototyping quality and in research context.",
+  "note": "Trimmed copies of the DONKI records. Field values are unchanged; some fields are dropped and CME speed, type and half angle come from the analysis flagged isMostAccurate."
+}

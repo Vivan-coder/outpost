@@ -13,6 +13,7 @@ const JUMP_V = 2.6;
 const BOUND = TERRAIN_SIZE / 2 - 4;
 
 export class Player {
+  gravity = MOON_G; // Mars sets this to 3.73
   pos = new THREE.Vector3(0, 0, 22);
   yaw = 0;
   pitch = 0;
@@ -45,7 +46,7 @@ export class Player {
     if (this.grounded) {
       this.pos.y = ground;
     } else {
-      this.vy -= MOON_G * dt;
+      this.vy -= this.gravity * dt;
       this.pos.y += this.vy * dt;
       if (this.pos.y <= ground) { this.pos.y = ground; this.vy = 0; this.grounded = true; }
     }

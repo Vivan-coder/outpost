@@ -1,18 +1,40 @@
 import type { LevelConfig } from '../sim/sim.ts';
-import { buildStorms, type SolarEvent } from './stormTimeline.ts';
+import { buildStorms, pickStorms, type SolarEvent } from './stormTimeline.ts';
 import { baselineMeterRate } from './apollo.ts';
 import { MODULE_POS, ROCK_PILE, SHELTER_AT } from './layout.ts';
 import solarEventJson from './solar-event.json' with { type: 'json' };
+import solarEvent2017 from './solar-event-2017.json' with { type: 'json' };
 
 export const solarEvent = solarEventJson as SolarEvent;
+// All bundled DONKI events. A run uses two storms from these (see pickStorms).
+export const events: SolarEvent[] = [solarEventJson as SolarEvent, solarEvent2017 as SolarEvent];
 
 const MISSION_LENGTH = 660;
-const SOL_LENGTH = 60;
+const SOL_LENGTH = 132; // five game days: storms land on day 3 and day 5
 
 // The storms (when they are detected, when the protons arrive, how strong, how long) are built from
 // the NASA DONKI records in solar-event.json. The rates and rewards below are game balance numbers.
 // Tasks are inspired by real space station work and simplified. `why` points into facts.json and is only
 // set where the fact was verified on a NASA page.
+const TUNING = {
+  windowStart: 240,
+  windowEnd: 540,
+  minWarning: 60,
+  maxWarning: 90,
+  minDuration: 40,
+  maxDuration: 55,
+  secondsPerFlareMinute: 1.9,
+  peakRadiation: 2.4,
+  fluxRef: 9.3e-4, // an X9.3 flare is the reference, so the May 2024 storms keep their strength
+  solarFactor: 0.1,
+  surgeBreaks: 1,
+};
+// The real storms a run can use, in the game's two time slots. Seed 0 is the classic May 2024 pair.
+export function stormsForSeed(seed: number) {
+  const cands = [...buildStorms(events[0], TUNING, 0), ...buildStorms(events[1], TUNING, 1)];
+  return pickStorms(cands, seed);
+}
+
 export const moon: LevelConfig = {
   id: 'moon',
   tickHz: 5,
@@ -68,9 +90,9 @@ export const moon: LevelConfig = {
   },
   autoRepairSeconds: 45,
   goals: [
-    { id: 'air', kind: 'airStreak', target: 180 },
-    { id: 'power', kind: 'powerStreak', target: 300 },
-    { id: 'health', kind: 'healthStreak', target: 240 },
+    { id: 'air', kind: 'airStreak', target: 264 },
+    { id: 'power', kind: 'powerStreak', target: 396 },
+    { id: 'health', kind: 'healthStreak', target: 264 },
     { id: 'tasks', kind: 'tasks', target: 12 },
     { id: 'upgrades', kind: 'upgrades', target: 3 },
     { id: 'radiation', kind: 'radiationUnder', target: 25 },
@@ -85,18 +107,7 @@ export const moon: LevelConfig = {
     { type: 'battery', ...MODULE_POS.battery },
   ],
   rockPile: ROCK_PILE,
-  storms: buildStorms(solarEvent, {
-    windowStart: 240,
-    windowEnd: 540,
-    minWarning: 60,
-    maxWarning: 90,
-    minDuration: 40,
-    maxDuration: 55,
-    secondsPerFlareMinute: 1.9,
-    peakRadiation: 1.5,
-    solarFactor: 0.1,
-    surgeBreaks: 1,
-  }),
+  storms: stormsForSeed(0),
   // Game events, not NASA data.
   events: [
     { at: 38, kind: 'failure', target: 'solar' },

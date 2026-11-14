@@ -33,6 +33,8 @@ export interface UpgradeDef { costs: number[]; mult: number[] } // level 2 and 3
 export interface GoalDef { id: string; kind: GoalKind; target: number }
 
 export interface StormInfo {
+  event: number; // which bundled DONKI event this storm comes from
+  kp: number; kpUrl: string; kpId: string; flareUrl: string; cmeUrl: string;
   flareId: string; flareClass: string; flareTimeUtc: string;
   cmeId: string; cmeTimeUtc: string; cmeSpeedKmS: number | null; cmeAt: number;
   sepId: string; sepTimeUtc: string; sepInstrument: string; sepUrl: string;

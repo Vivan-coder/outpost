@@ -85,7 +85,10 @@ export function forecastBlock(sim: SimState, cfg: LevelConfig, openSource: (info
     ['cme', info ? t('fcCme', { speed: info.cmeSpeedKmS ?? '?' }) : '', tip('gl_cme', t('fcStep2'))],
     ['protons', t('fcProtons'), tip('gl_particles', t('fcStep3'))],
   ];
-  if (stage === 'quiet' || stage === 'over' || stage === 'watch') {
+  if (cfg.planet === 'mars') {
+    const p = el('p', 'fcLine'); p.append(badge('game', t('badgeGame')), document.createTextNode(' ' + t('fcMarsDust')));
+    box.appendChild(p);
+  } else if (stage === 'quiet' || stage === 'over' || stage === 'watch') {
     box.appendChild(el('p', 'fcLine', t(stage === 'quiet' ? 'fcQuiet' : stage === 'over' ? 'fcOver' : 'fcWatch')));
   } else {
     for (const [s, text, label] of rows) {
@@ -235,6 +238,25 @@ export function runMissionControl(sim: SimState, cfg: LevelConfig, ctx: McContex
 
   at = 0;
   stages[0]();
+}
+
+// Mars: a question for Mission Control. You can decide now, or ask Earth and wait for the radio delay.
+export function marsDecision(id: string, delay: number, eff: { a: Effects; wait: Effects }, onPick: (choice: 'a' | 'wait') => void, openSource: (info: { source: string; date: string; url: string }) => void): void {
+  const overlay = $('overlay'), card = $('overlayCard');
+  const kids: (Node | string)[] = [el('h2', '', t(`mars_${id}_t` as TextKey)), el('p', '', t(`mars_${id}_d` as TextKey))];
+  const rd = el('p', 'realNote');
+  rd.append(badge('game', t('badgeGame')), document.createTextNode(' ' + t('radioDelay', { s: delay }) + '. ' + t('radioSimple')));
+  const real = el('p', 'realNote');
+  real.append(badge('real', t('badgeReal') + ' ⓘ', () => openSource({ source: 'NASA', date: '2026-11-14', url: (factsJson.facts as Record<string, { source_url: string }>).commsDelay.source_url })), document.createTextNode(' ' + t('fact_commsDelay')));
+  kids.push(rd, real);
+  for (const choice of ['a', 'wait'] as const) {
+    const b = el('button', 'opt decOpt');
+    const title = choice === 'a' ? t(`mars_${id}_a` as TextKey) : t('radioWait', { s: delay });
+    b.append(el('b', '', (choice === 'a' ? t('marsDecide') : t('marsAskEarth')) + ': ' + title), el('small', '', choice === 'a' ? t('marsDecideNote') : t('marsAskNote', { s: delay })), effectChips(choice === 'a' ? eff.a : eff.wait));
+    b.addEventListener('click', () => { overlay.classList.remove('on'); onPick(choice); });
+    kids.push(b);
+  }
+  card.replaceChildren(...kids); card.scrollTop = 0; overlay.classList.add('on');
 }
 
 // Read-only view for the control-room console and the pause menu

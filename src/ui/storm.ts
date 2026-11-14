@@ -1,13 +1,13 @@
-import { solarEvent } from '../data/moon.ts';
+import { events } from '../data/moon.ts';
+import type { SolarEvent } from '../data/stormTimeline.ts';
 import { flareFlux } from '../data/stormTimeline.ts';
 import type { LevelConfig, SimState } from '../sim/sim.ts';
 import { t } from '../i18n/en';
 
 // Chart of the real May 2024 DONKI sequence: flares, CMEs, proton onsets and the Kp storm at Earth,
 // with a "now" marker that moves as the game storm plays out.
-const T0 = Date.parse('2024-05-10T00:00Z');
-const T1 = Date.parse('2024-05-12T00:00Z');
 const ms = (iso: string) => Date.parse(iso);
+const dayStart = (iso: string) => { const d = new Date(ms(iso)); d.setUTCHours(0, 0, 0, 0); return d.getTime(); };
 
 // Where the game storm is on the real timeline. The game squeezes about 20 real hours into a few minutes.
 export function realNow(sim: SimState, cfg: LevelConfig): number | null {
@@ -24,7 +24,11 @@ export function fmtUtc(msv: number): string {
   return `${d.getUTCDate()} ${m} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
-export function drawStormChart(c: HTMLCanvasElement, now: number | null): void {
+// The chart shows the 48 hours that start on the day of the storm's flare.
+export function drawStormChart(c: HTMLCanvasElement, now: number | null, eventIndex = 0, anchorIso = ''): void {
+  const solarEvent: SolarEvent = events[eventIndex] ?? events[0];
+  const T0 = dayStart(anchorIso || solarEvent.flares[0].beginTime), T1 = T0 + 48 * 3600e3;
+  const inWin = (iso: string) => ms(iso) >= T0 && ms(iso) <= T1;
   const g = c.getContext('2d')!;
   const W = c.width, H = c.height;
   const L = 14, R = W - 14, top = 30, plotB = H - 62;
@@ -39,11 +43,11 @@ export function drawStormChart(c: HTMLCanvasElement, now: number | null): void {
     const xx = x(T0 + h * 3600e3);
     g.beginPath(); g.moveTo(xx, top - 6); g.lineTo(xx, plotB); g.stroke();
   }
-  g.fillText('10 May', L + 2, 14); g.fillText('11 May', x(T0 + 24 * 3600e3) + 2, 14);
+  g.fillText(fmtUtc(T0).slice(0, 6), L + 2, 14); g.fillText(fmtUtc(T0 + 24 * 3600e3).slice(0, 6), x(T0 + 24 * 3600e3) + 2, 14);
 
   // Kp at Earth: bars along the bottom of the plot
-  const gst = solarEvent.gsts[0];
-  for (const k of gst.kp) {
+  const gst = solarEvent.gsts.find((gg) => ms(gg.startTime) >= T0 - 12 * 3600e3 && ms(gg.startTime) <= T1) ?? solarEvent.gsts[0];
+  for (const k of gst.kp.filter((kk) => inWin(kk.time))) {
     const xx = x(ms(k.time)); const h = (k.kp / 9) * 34;
     g.fillStyle = k.kp >= 7 ? '#c77dff' : '#7a5aa8';
     g.fillRect(xx - 6, plotB - h, 12, h);
@@ -52,7 +56,7 @@ export function drawStormChart(c: HTMLCanvasElement, now: number | null): void {
 
   // proton onsets measured near Earth (GOES)
   g.setLineDash([5, 4]); g.lineWidth = 2;
-  for (const s of solarEvent.seps.filter((v) => v.instrument.startsWith('GOES'))) {
+  for (const s of solarEvent.seps.filter((v) => v.instrument.startsWith('GOES') && inWin(v.eventTime))) {
     const xx = x(ms(s.eventTime));
     g.strokeStyle = '#ff9a3c'; g.beginPath(); g.moveTo(xx, top); g.lineTo(xx, plotB); g.stroke();
     g.fillStyle = '#ff9a3c'; g.textAlign = 'center'; g.fillText(t('stormLegendSep'), xx, top - 8);
@@ -61,13 +65,13 @@ export function drawStormChart(c: HTMLCanvasElement, now: number | null): void {
 
   // flares: bar height follows the log of the X-ray flux, so each step up the letter scale is one step up
   const hOf = (cls: string) => Math.max(8, ((Math.log10(flareFlux(cls)) + 6.2) / 3.2) * (plotB - top - 24));
-  for (const f of solarEvent.flares) {
+  for (const f of solarEvent.flares.filter((ff) => inWin(ff.peakTime))) {
     const xx = x(ms(f.peakTime)), h = hOf(f.classType);
     g.fillStyle = '#ffd24a'; g.fillRect(xx - 7, plotB - h, 14, h);
     g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText(f.classType, xx, plotB - h - 5);
   }
   // CMEs: triangles with speed
-  for (const cme of solarEvent.cmes) {
+  for (const cme of solarEvent.cmes.filter((cc) => inWin(cc.startTime))) {
     const xx = x(ms(cme.startTime));
     g.fillStyle = '#5ad1ff'; g.beginPath(); g.moveTo(xx - 7, top + 22); g.lineTo(xx + 7, top + 22); g.lineTo(xx, top + 8); g.closePath(); g.fill();
     g.fillStyle = '#5ad1ff'; g.textAlign = 'left'; g.fillText(`CME ${cme.speedKmS}`, xx + 9, top + 20);
@@ -81,7 +85,7 @@ export function drawStormChart(c: HTMLCanvasElement, now: number | null): void {
   for (const [lab, flux] of [['C1', 1e-6], ['M1', 1e-5], ['X1', 1e-4], ['X10', 1e-3]] as [string, number][]) {
     g.beginPath(); g.moveTo(lx(flux), sy - 6); g.lineTo(lx(flux), sy + 6); g.stroke(); g.fillText(lab, lx(flux), sy + 20);
   }
-  for (const f of solarEvent.flares) { g.fillStyle = '#ffd24a'; g.beginPath(); g.arc(lx(flareFlux(f.classType)), sy, 6, 0, 7); g.fill(); }
+  for (const f of solarEvent.flares.filter((ff) => inWin(ff.peakTime))) { g.fillStyle = '#ffd24a'; g.beginPath(); g.arc(lx(flareFlux(f.classType)), sy, 6, 0, 7); g.fill(); }
 
   // now marker
   if (now !== null) {

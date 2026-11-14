@@ -1,13 +1,13 @@
 import { caps, crewOptions, goalProgress, stars, taskSpeed, upgradeCost, type LevelConfig, type ModuleType, type Reward, type SimState, type TaskId, type UpgradeKey } from '../sim/sim.ts';
 import factsJson from '../data/facts.json' with { type: 'json' };
-import { solarEvent } from '../data/moon.ts';
+import { solarEvent, events } from '../data/moon.ts';
 import { apollo, FULL_METER_REM } from '../data/apollo.ts';
 import meta from '../data/solar-event.meta.json' with { type: 'json' };
 import { t, type TextKey } from '../i18n/en';
 import { GAUGE_ZONE, type TaskRunner } from '../game/tasks';
 import { TOOLS, type Tool } from '../data/workTasks';
 import type { WorkView } from '../game/work';
-import { CARD_IDS, cardInfo, issDayHigh, issDayLow, radDay, radUrl, type CardId } from './cards';
+import { CARD_IDS, cardInfo, issDayHigh, issDayLow, radDay, radUrl, type CardId, type CardInfo } from './cards';
 import { drawStormChart, realNow } from './storm';
 
 export interface UiHandlers {
@@ -65,6 +65,9 @@ const BARS: { key: 'power' | 'air' | 'protect'; color: string; icon: string }[] 
 const UPGRADES: UpgradeKey[] = ['engineering', 'solar', 'lifeSupport', 'greenhouse', 'battery', 'tank', 'station'];
 export const factText = (id: string | null): string | null => (id && (factsJson.facts as Record<string, unknown>)[id] ? t(('fact_' + id) as TextKey) : null);
 
+// A record belongs to the storm on screen if it is within a day and a half of the flare.
+const near = (iso: string, anchor: string) => Math.abs(Date.parse(iso) - Date.parse(anchor)) < 36 * 3600e3;
+const winfoDate = (cfg: LevelConfig, sim: SimState) => cfg.storms[Math.min(sim.stormIndex, cfg.storms.length - 1)].info.flareTimeUtc.slice(0, 10);
 const scaled = (r: Reward, k: number): Reward => ({ ...r, power: r.power && Math.round(r.power * k), air: r.air && Math.round(r.air * k), food: r.food && Math.round(r.food * k), health: r.health && Math.round(r.health * k), research: r.research && Math.round(r.research * k) });
 function gainText(r: Reward): string {
   const parts: string[] = [];
@@ -113,6 +116,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   let subTimer = 0;
   let goalsOpen = false, lastSim: SimState | null = null, workSig = '';
   const collected = new Set<CardId>();
+  const snaps = new Map<CardId, CardInfo>(); // each card keeps the text it had when it was found
   let vrHook: VrHook | null = null;
   const badge = (kind: 'real' | 'game' | 'hist', info?: { source: string; date: string; url: string }): HTMLElement => {
     const b = el('button', `badge ${kind}`, t(kind === 'real' ? 'badgeReal' : kind === 'game' ? 'badgeGame' : 'badgeHist') + (info ? ' ⓘ' : ''));
@@ -302,7 +306,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       document.body.classList.toggle('storming', !!sim.storm);
       if (sim.storm) {
         if (!sp.dataset.ready) { sp.dataset.ready = '1'; $('spBadge').replaceChildren(badge('real', DONKI), badge('game')); }
-        drawStormChart($('spChart') as HTMLCanvasElement, realNow(sim, cfg));
+        const inf = cfg.storms[sim.storm.index].info;
+        drawStormChart($('spChart') as HTMLCanvasElement, realNow(sim, cfg), inf.event, inf.flareTimeUtc);
       }
       // Dosimeter: the number is the game's storm dose; the comparison is real ISS data from RadLab
       const dose = $('dose');
@@ -415,7 +420,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     collect(id: CardId): boolean {
       if (collected.has(id)) return false;
-      collected.add(id);
+      collected.add(id); snaps.set(id, cardInfo(id));
       h.cardNew(id);
       return true;
     },
@@ -430,17 +435,19 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     // The Space Weather console: the real DONKI sequence for the whole event, with where the game storm is now.
     weatherCard(sim: SimState): void {
       if (vrHook) { vrHook.note('vrNoDesktop'); return; }
-      overlayCard.replaceChildren(el('h2', '', t('weatherTitle')), badge('real', DONKI), el('p', '', t('weatherIntro')));
+      overlayCard.replaceChildren(el('h2', '', t('weatherTitle')), badge('real', DONKI), el('p', '', t('weatherIntro', { d: winfoDate(cfg, sim) })));
+      const winfo = cfg.storms[Math.min(sim.stormIndex, cfg.storms.length - 1)].info;
+      const wev = events[winfo.event] ?? solarEvent;
       const c = document.createElement('canvas');
       c.width = 760; c.height = 340;
-      drawStormChart(c, realNow(sim, cfg));
+      drawStormChart(c, realNow(sim, cfg), winfo.event, winfo.flareTimeUtc);
       overlayCard.appendChild(c);
       const ul = el('ul');
       const rows: [string, string][] = [
-        ...solarEvent.flares.map((f): [string, string] => [f.beginTime, t('dataFlare', { time: utc(f.beginTime), cls: f.classType }) + '  · ' + f.id]),
-        ...solarEvent.cmes.map((m): [string, string] => [m.startTime, t('dataCme', { time: utc(m.startTime), speed: m.speedKmS ?? '?' }) + '  · ' + m.id]),
-        ...solarEvent.seps.filter((s) => s.instrument.startsWith('GOES')).map((s): [string, string] => [s.eventTime, t('dataSep', { time: utc(s.eventTime), instrument: s.instrument }) + '  · ' + s.id]),
-        ...solarEvent.gsts.slice(0, 1).map((g): [string, string] => [g.startTime, t('dataGst', { time: utc(g.startTime), kp: g.maxKp }) + '  · ' + g.id]),
+        ...wev.flares.filter((f) => near(f.beginTime, winfo.flareTimeUtc)).map((f): [string, string] => [f.beginTime, t('dataFlare', { time: utc(f.beginTime), cls: f.classType }) + '  · ' + f.id]),
+        ...wev.cmes.filter((m) => near(m.startTime, winfo.flareTimeUtc)).map((m): [string, string] => [m.startTime, t('dataCme', { time: utc(m.startTime), speed: m.speedKmS ?? '?' }) + '  · ' + m.id]),
+        ...wev.seps.filter((s) => s.instrument.startsWith('GOES') && near(s.eventTime, winfo.flareTimeUtc)).map((s): [string, string] => [s.eventTime, t('dataSep', { time: utc(s.eventTime), instrument: s.instrument }) + '  · ' + s.id]),
+        ...wev.gsts.filter((g) => near(g.startTime, winfo.flareTimeUtc)).slice(0, 1).map((g): [string, string] => [g.startTime, t('dataGst', { time: utc(g.startTime), kp: g.maxKp }) + '  · ' + g.id]),
       ];
       for (const [, text] of rows.sort((a, b) => a[0].localeCompare(b[0]))) ul.appendChild(el('li', '', text));
       overlayCard.appendChild(ul);
@@ -487,7 +494,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       for (const id of CARD_IDS) {
         const row = el('div', 'logRow');
         if (collected.has(id)) {
-          const c = cardInfo(id);
+          const c = snaps.get(id) ?? cardInfo(id);
           const head = el('b', '', c.title + ' ');
           head.appendChild(badge(c.kind, { source: c.source, date: c.date, url: c.url }));
           row.append(head, el('div', '', c.line));
@@ -622,6 +629,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       menuCard.appendChild(option(5, t('btnLang'), '', '', () => h.toggleLanguage()));
       menuCard.appendChild(option(6, t('btnRestart'), '', '', () => h.restart()));
       menuCard.appendChild(option(7, t('btnCredits'), '', '', () => { closeMenu(); ui.credits(); }));
+      menuCard.appendChild(option(8, t('btnMars'), '', '', () => { location.href = location.pathname + '?mars=1'; }));
       menuCard.appendChild(el('p', 'keys', `${t('hintDesktop')} · ${t('menuKeys')}`));
       menu.classList.add('on');
       resume.focus({ preventScroll: true });
@@ -679,11 +687,11 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       b.focus({ preventScroll: true });
     },
 
-    end(sim: SimState, onAgain: () => void): void {
+    end(sim: SimState, onAgain: () => void, extra?: { title?: string; label: string; onClick: () => void }): void {
       if (vrHook) { const won = sim.status === 'won'; vrHook.card(t(won ? 'winTitle' : 'loseTitle'), [won ? t('winBody', { rank: t(`rank${stars(sim)}` as TextKey) }) : t(`lose_${sim.failCause}` as TextKey)], t('btnAgain'), onAgain); return; }
       closeMenu();
       const won = sim.status === 'won';
-      overlayCard.replaceChildren(el('h2', '', t(won ? 'winTitle' : 'retryTitle')));
+      overlayCard.replaceChildren(el('h2', '', won && extra?.title ? extra.title : t(won ? 'winTitle' : 'retryTitle')));
       if (won) {
         const n = stars(sim);
         overlayCard.appendChild(el('div', 'stars', '★'.repeat(n) + '☆'.repeat(3 - n)));
@@ -717,6 +725,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       const b = el('button', 'main', t('btnAgain'));
       b.addEventListener('click', onAgain);
       overlayCard.appendChild(b);
+      if (extra) { const x = el('button', 'close', extra.label); x.addEventListener('click', extra.onClick); overlayCard.appendChild(x); }
       overlay.classList.add('on');
       b.focus({ preventScroll: true });
     },

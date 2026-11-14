@@ -404,7 +404,7 @@ export const en = {
   doseGame: '{n} µGy (game)',
   doseReal: 'Real ISS crew: about {lo} to {hi} µGy per day',
   weatherTitle: 'Space Weather console',
-  weatherIntro: 'The real storm of 10 and 11 May 2024, from NASA DONKI: first a flare, then a CME, then fast protons.',
+  weatherIntro: 'The real storm of {d}, from NASA DONKI: first a flare, then a CME, then fast protons.',
   lbl_weather: 'Space weather',
   do_weather: 'open the space weather console',
   btnAct_weather: 'WEATHER',
@@ -615,6 +615,16 @@ export const en = {
   marsGoal: 'Survive 4 sols on Mars.',
   marsFacts: 'Real facts: {a}',
   marsBack: 'Back to the Moon base',
+  fcMarsDust: 'A big dust storm is coming. Dust hides the Sun, so the panels make less power.',
+  marsDone: 'Mars preview complete!',
+  marsNext: 'Next mission: Mars preview',
+  marsDecide: 'Decide now',
+  marsAskEarth: 'Ask Earth first',
+  marsAskNote: 'Earth\'s answer comes in {s} s. Waiting costs something. Earth\'s advice helps more.',
+  marsDecideNote: 'You act now with your best guess.',
+  marsReplyApplied: 'Earth\'s advice helped.',
+  radioLabel: '📡 Radio to Earth',
+  radioIdle: 'Delay: {s} s each way',
 } as const;
 
 export type TextKey = keyof typeof en;

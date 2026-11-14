@@ -4,11 +4,15 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// Usage: node scripts/make-solar-event.mjs <dir> [slug] [startDate] [endDate] [flareId,flareId] [name]
 const dir = process.argv[2];
+const slug = process.argv[3] ?? '';
+const START = process.argv[4] ?? '2024-05-08', END = process.argv[5] ?? '2024-05-12';
+const NAME = process.argv[7] ?? 'May 2024 solar storm';
 const load = (name) => JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8'));
 const ids = (e) => (e.linkedEvents ?? []).map((l) => l.activityID);
 
-const FLARE_IDS = ['2024-05-10T06:27:00-FLR-001', '2024-05-11T01:10:00-FLR-001'];
+const FLARE_IDS = (process.argv[6] ?? '2024-05-10T06:27:00-FLR-001,2024-05-11T01:10:00-FLR-001').split(',');
 
 const flares = load('FLR').filter((f) => FLARE_IDS.includes(f.flrID)).map((f) => ({
   id: f.flrID, beginTime: f.beginTime, peakTime: f.peakTime, endTime: f.endTime, classType: f.classType,
@@ -31,20 +35,21 @@ const gsts = load('GST').map((g) => ({
   kp: g.allKpIndex.map((k) => ({ time: k.observedTime, kp: k.kpIndex, source: k.source })), link: g.link, linkedEvents: ids(g),
 }));
 
-const event = { name: 'May 2024 solar storm', activeRegionNum: 13664, flares, cmes, seps, gsts };
-writeFileSync('src/data/solar-event.json', JSON.stringify(event, null, 2) + '\n');
+const event = { name: NAME, activeRegionNum: flares[0]?.activeRegionNum ?? 0, flares, cmes, seps, gsts };
+const SUFFIX = slug ? `-${slug}` : '';
+writeFileSync(`src/data/solar-event${SUFFIX}.json`, JSON.stringify(event, null, 2) + '\n');
 
 const meta = {
   source: 'NASA CCMC DONKI (Space Weather Database Of Notifications, Knowledge, Information)',
   sourcePage: 'https://ccmc.gsfc.nasa.gov/tools/DONKI/',
   apiBase: 'https://ccmc.gsfc.nasa.gov/DONKI/WS/get/',
   endpoints: ['FLR', 'SEP', 'CME', 'GST'],
-  query: { startDate: '2024-05-08', endDate: '2024-05-12' },
+  query: { startDate: START, endDate: END },
   downloadDate: '2026-11-14',
   apiKeyUsed: false,
   eventIds: { flares: flares.map((f) => f.id), cmes: cmes.map((c) => c.id), seps: seps.map((s) => s.id), gsts: gsts.map((g) => g.id) },
   quality: 'DONKI states its real-time information should be considered prototyping quality and in research context.',
   note: 'Trimmed copies of the DONKI records. Field values are unchanged; some fields are dropped and CME speed, type and half angle come from the analysis flagged isMostAccurate.',
 };
-writeFileSync('src/data/solar-event.meta.json', JSON.stringify(meta, null, 2) + '\n');
+writeFileSync(`src/data/solar-event${SUFFIX}.meta.json`, JSON.stringify(meta, null, 2) + '\n');
 console.log(JSON.stringify(meta.eventIds, null, 1));

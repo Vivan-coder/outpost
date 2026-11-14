@@ -76,6 +76,7 @@
     .sumBars { margin: 8px 0; } .sumRow { display: grid; grid-template-columns: 84px 1fr 66px; gap: 8px; align-items: center; margin: 7px 0; font-size: 13px; } .sumTrack { position: relative; height: 14px; background: #ffffff1f; border-radius: 7px; overflow: hidden; } .sumTrack i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 7px; } .sumTrack .before { background: #ffffff40; } .sumTrack .after.up { background: #5be08a; opacity: .9; } .sumTrack .after.down { background: #ff7b6a; opacity: .9; height: 60%; top: 20%; } .sumVal { text-align: right; font-variant-numeric: tabular-nums; }
     .sumList { font-size: 13.5px; line-height: 1.5; } .sumTrade { font-weight: 700; color: #ffd24a; font-size: 13px; } .realNote { background: #12263f; border-left: 3px solid #5ab0ff; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.4; margin: 8px 0; }
     .budRow { margin: 10px 0 14px; } .budHead { display: flex; justify-content: space-between; font-size: 15px; } .budPct { font-weight: 900; color: #ffd24a; } .budRow small { display: block; opacity: .85; font-size: 11.5px; } .budRow input[type=range] { width: 100%; height: 34px; margin: 4px 0; accent-color: #ffd24a; touch-action: pan-y; } .budEff { color: #9fd0ff; } .gentle { background: #14502ecc; border-radius: 10px; padding: 8px 10px; font-size: 13px; } .tipHint { opacity: .75; } .btnRow { display: grid; gap: 8px; }
+    #radio { position: fixed; top: calc(var(--st) + 96px); right: var(--sr); display: none; background: #1a2a4aee; border: 2px solid #7fb0ff; border-radius: 10px; padding: 6px 10px; font-size: 12px; font-weight: 700; max-width: 40vw; pointer-events: none; } body.mars #radio { display: block; }
     #subtitle { position: fixed; left: 50%; bottom: calc(var(--sb) + 150px); transform: translateX(-50%); width: min(86vw, 560px); display: none; box-sizing: border-box;
       background: #0b1220ee; border: 1px solid #7fb0ff; border-radius: 14px; padding: 9px 14px; font-size: 14px; line-height: 1.35; text-align: center; pointer-events: none; }
     #subtitle b { color: #ffd24a; }
@@ -232,6 +233,7 @@
     <div id="dose"></div>
   </div>
   <div id="banner"></div>
+  <div id="radio"></div>
   <button id="shelterBtn"></button>
   <div id="cross"></div><div id="dot"></div>
   <div id="prompt"></div>
