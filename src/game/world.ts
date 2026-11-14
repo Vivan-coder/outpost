@@ -1,16 +1,24 @@
 import * as THREE from 'three';
 import type { LevelConfig, ModuleType, SimState } from '../sim/sim.ts';
-import { createAlert, createModuleModel, createRockPile } from '../render/models';
+import { createModuleModel, createRockPile } from '../render/models';
+import { createBuilding, createMarker, type Building } from '../render/building';
 import { heightAt } from '../render/terrain';
-import type { Blocker } from './player';
+import type { Blocker } from './collide';
 
-interface ModuleView { group: THREE.Group; alert: THREE.Sprite; top: number }
+interface ModuleView { group: THREE.Group; alert: THREE.Sprite; job: THREE.Sprite; top: number }
 interface Meteor { mesh: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number }
 
-const TOP: Record<ModuleType, number> = { habitat: 8.4, solar: 3.6, battery: 2.6, lifeSupport: 4.2, tank: 3.2, greenhouse: 3.4 };
+export interface BuildingView {
+  id: number; type: 'habitat' | 'shelter'; x: number; z: number; r: number; inner: number;
+  b: Building; blocker: Blocker; slide: number; // slide: 0 closed .. 1 open
+}
 
-// Keeps the 3D modules in step with the sim's module list, and owns the build ghost and meteors.
+const TOP: Record<ModuleType, number> = { habitat: 0, shelter: 0, solar: 3.6, battery: 2.6, lifeSupport: 4.2, tank: 3.2, greenhouse: 3.4 };
+const isBuilding = (type: ModuleType): type is 'habitat' | 'shelter' => type === 'habitat' || type === 'shelter';
+
+// Keeps the 3D base in step with the sim's module list. Owns buildings, doors, markers, the build ghost and meteors.
 export class World {
+  buildings: BuildingView[] = [];
   private views = new Map<number, ModuleView>();
   private ghost: THREE.Group | null = null;
   private ghostType: ModuleType | null = null;
@@ -29,33 +37,74 @@ export class World {
 
   sync(sim: SimState): void {
     for (const m of sim.modules) {
+      if (isBuilding(m.type)) {
+        if (this.buildings.some((v) => v.id === m.id)) continue;
+        const r = this.cfg.modules[m.type].radius;
+        const b = createBuilding(m.type, r);
+        b.group.position.set(m.x, heightAt(m.x, m.z), m.z);
+        this.scene.add(b.group);
+        const blocker: Blocker = { x: m.x, z: m.z, r, ring: { inner: r - 0.35, doorHalf: b.doorHalf, open: true } };
+        this.buildings.push({ id: m.id, type: m.type, x: m.x, z: m.z, r, inner: r - 0.35, b, blocker, slide: 1 });
+        continue;
+      }
       if (this.views.has(m.id)) continue;
       const group = createModuleModel(m.type);
       group.position.set(m.x, heightAt(m.x, m.z) - 0.05, m.z);
-      const alert = createAlert();
-      alert.position.y = TOP[m.type];
-      alert.visible = false;
-      group.add(alert);
+      const alert = createMarker('!', '#e53935');
+      const job = createMarker('★', '#e0a020');
+      for (const s of [alert, job]) { s.position.y = TOP[m.type]; s.visible = false; group.add(s); }
       this.scene.add(group);
-      this.views.set(m.id, { group, alert, top: TOP[m.type] });
+      this.views.set(m.id, { group, alert, job, top: TOP[m.type] });
     }
     this.blockers.length = 0;
-    for (const m of sim.modules) this.blockers.push({ x: m.x, z: m.z, r: this.cfg.modules[m.type].radius });
+    for (const v of this.buildings) this.blockers.push(v.blocker);
+    for (const m of sim.modules) if (!isBuilding(m.type)) this.blockers.push({ x: m.x, z: m.z, r: this.cfg.modules[m.type].radius });
     this.blockers.push({ x: this.cfg.rockPile.x, z: this.cfg.rockPile.z, r: this.cfg.rockPile.radius });
   }
 
-  update(dt: number, sim: SimState, time: number): void {
+  // Which building (index) a point is inside, or -1.
+  buildingAt(x: number, z: number): number {
+    return this.buildings.findIndex((v) => Math.hypot(x - v.x, z - v.z) < v.inner);
+  }
+
+  // Building whose doorway the point is next to, or null.
+  doorNear(x: number, z: number): BuildingView | null {
+    for (const v of this.buildings) if (Math.hypot(x - v.x, z - (v.z + v.r)) < 2.6) return v;
+    return null;
+  }
+
+  toggleDoor(v: BuildingView): boolean {
+    v.blocker.ring!.open = !v.blocker.ring!.open;
+    return v.blocker.ring!.open;
+  }
+
+  update(dt: number, sim: SimState, time: number, px: number, pz: number, crew: { x: number; z: number }[]): void {
     for (const m of sim.modules) {
       const v = this.views.get(m.id);
       if (!v) continue;
+      const hasJob = !m.broken && sim.jobs.some((j) => j.moduleId === m.id);
       v.alert.visible = m.broken;
-      if (m.broken) {
-        v.alert.position.y = v.top + Math.sin(time * 5) * 0.2;
-        v.group.rotation.z = Math.sin(time * 30) * 0.004;
-      } else {
-        v.group.rotation.z = 0;
-      }
+      v.job.visible = hasJob;
+      const bob = v.top + Math.sin(time * 4) * 0.18;
+      v.alert.position.y = bob; v.job.position.y = bob;
+      v.group.rotation.z = m.broken ? Math.sin(time * 30) * 0.004 : 0;
     }
+
+    for (const v of this.buildings) {
+      // Doors open by themselves for the crew, so nobody is ever locked out in a storm.
+      const dz = v.z + v.r;
+      if (!v.blocker.ring!.open && crew.some((c) => Math.hypot(c.x - v.x, c.z - dz) < 2.4)) v.blocker.ring!.open = true;
+      v.slide += ((v.blocker.ring!.open ? 1 : 0) - v.slide) * Math.min(1, dt * 6);
+      v.b.door.position.x = v.slide * 2.5;
+
+      // Cut-away: fade the roof and wall when the player is inside or close, so the interior reads.
+      const d = Math.hypot(px - v.x, pz - v.z);
+      const inside = d < v.inner;
+      const near = d < v.r + 9;
+      this.fade(v.b.roof, inside ? 0.3 : near ? 0.14 : 1, dt);
+      this.fade(v.b.wall, inside ? 1 : near ? 0.38 : 1, dt);
+    }
+
     for (let i = this.meteors.length - 1; i >= 0; i--) {
       const me = this.meteors[i];
       me.t += dt / 0.9;
@@ -65,20 +114,18 @@ export class World {
     }
   }
 
-  // Nearest broken module the player is close to and roughly facing.
-  fixTarget(sim: SimState, px: number, pz: number, yaw: number): number | null {
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-    let best: number | null = null, bestD = Infinity;
-    for (const m of sim.modules) {
-      if (!m.broken) continue;
-      const dx = m.x - px, dz = m.z - pz, d = Math.hypot(dx, dz);
-      const reach = this.cfg.modules[m.type].radius + 3.5;
-      if (d > reach) continue;
-      const facing = (dx * fx + dz * fz) / (d || 1);
-      if (facing < 0.1 && d > this.cfg.modules[m.type].radius + 1.5) continue;
-      if (d < bestD) { bestD = d; best = m.id; }
-    }
-    return best;
+  private fade(m: THREE.MeshStandardMaterial, target: number, dt: number): void {
+    m.opacity += (target - m.opacity) * Math.min(1, dt * 5);
+    const solid = m.opacity > 0.97;
+    if (m.depthWrite !== solid) { m.depthWrite = solid; m.needsUpdate = true; }
+  }
+
+  // Briefly pops a module, as feedback when a task on it finishes.
+  pulse(id: number): void {
+    const v = this.views.get(id);
+    if (!v) return;
+    v.group.scale.setScalar(1.12);
+    setTimeout(() => v.group.scale.setScalar(1), 180);
   }
 
   setGhost(type: ModuleType | null, x = 0, z = 0, ok = true): void {
@@ -105,10 +152,5 @@ export class World {
     mesh.position.copy(from);
     this.scene.add(mesh);
     this.meteors.push({ mesh, from, to, t: 0 });
-  }
-
-  modulePos(sim: SimState, id: number): { x: number; z: number } | null {
-    const m = sim.modules.find((mod) => mod.id === id);
-    return m ? { x: m.x, z: m.z } : null;
   }
 }

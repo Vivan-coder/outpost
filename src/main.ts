@@ -3,9 +3,10 @@ import { createTerrain } from './render/terrain';
 import { createStars, createEarth } from './render/sky';
 import { createInput } from './game/input';
 import { Player, type Blocker } from './game/player';
-import { World } from './game/world';
+import { World, type BuildingView } from './game/world';
 import { Crew } from './game/crew';
-import { assign, build, canPlace, createSim, fix, setShelter, step, type ModuleType } from './sim/sim.ts';
+import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
+import { assign, build, canPlace, completeJob, createSim, fix, setShelter, step, type ModuleType } from './sim/sim.ts';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi } from './ui/ui';
 import { sfx, unlockAudio } from './audio/sfx';
@@ -27,7 +28,8 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
+const sky = new THREE.Color(0x000000);
+scene.background = sky;
 const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 2000);
 
 // Harsh single sun, almost no fill: there is no atmosphere to scatter light on the Moon.
@@ -35,11 +37,12 @@ const sun = new THREE.DirectionalLight(0xfff4e0, 3.2);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
 const sc = sun.shadow.camera;
-sc.left = -32; sc.right = 32; sc.top = 32; sc.bottom = -32; sc.near = 1; sc.far = 200;
+sc.left = -34; sc.right = 34; sc.top = 34; sc.bottom = -34; sc.near = 1; sc.far = 200;
 sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
-scene.add(new THREE.HemisphereLight(0x223355, 0x111111, 0.4));
+scene.add(new THREE.HemisphereLight(0x223355, 0x111111, 0.45));
 scene.add(createTerrain(), createStars(), createEarth());
+const SUN_CALM = new THREE.Color(0xfff4e0), SUN_STORM = new THREE.Color(0xff8a4a);
 
 const level = moon;
 const sim = createSim(level);
@@ -47,20 +50,35 @@ const sim = createSim(level);
 const skipTo = Number(new URLSearchParams(location.search).get('skip')) || 0;
 while (sim.time < skipTo && sim.status === 'running') step(sim, level, 1 / level.tickHz);
 sim.outbox.length = 0;
+// Testing aids: ?fast=8 runs the game 8 times faster; ?debug exposes the game state on window.
+const params = new URLSearchParams(location.search);
+const fastForward = Math.max(1, Math.min(40, Number(params.get('fast')) || 1));
+
 const blockers: Blocker[] = [];
 const world = new World(scene, blockers, level);
 world.sync(sim);
-const crew = new Crew(scene, sim, level, blockers);
+const crew = new Crew(scene, sim, level, blockers, world);
 const input = createInput(canvas);
 const player = new Player(camera, blockers);
+const runner = new TaskRunner();
+const keys = new Set<string>();
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys } });
+
+type Target =
+  | { type: 'task'; task: TaskTarget; name: string }
+  | { type: 'door'; view: BuildingView }
+  | { type: 'crew'; index: number };
 
 let placing: ModuleType | null = null;
 let placeX = 0, placeZ = 0, placeOk = false;
-let fixId: number | null = null;
+let target: Target | null = null;
 let clock = 0; // seconds of unpaused play, for banners and animation
+let skyMix = 0, sirenAt = 0, holdTick = 0, lastBot = '';
 
 const modName = (type: ModuleType) => t(`mod_${type}` as TextKey);
+const isTouch = () => input.state.isTouch;
 const unlockPointer = () => { if (document.pointerLockElement) document.exitPointerLock(); };
+const bot = (key: TextKey) => { lastBot = t(key); ui.toast(lastBot, 'bot'); };
 
 function switchLanguage(): void {
   try { localStorage.setItem('outpost.lang', lang === 'ar' ? 'en' : 'ar'); } catch { /* storage blocked */ }
@@ -81,52 +99,128 @@ const ui = createUi(level, {
     placing = null;
   },
   cancelPlace() { placing = null; },
-  fix() {
-    if (fixId === null) return;
-    const m = sim.modules.find((mod) => mod.id === fixId);
-    if (m && fix(sim, fixId)) { sfx.fix(); ui.toast(t('fixed', { name: modName(m.type) }), 'good'); }
-  },
+  actDown: () => actTap(),
+  seqPress: (n) => seqPress(n),
   assign(i, chore) {
     assign(sim, i, chore);
-    if (chore) {
-      const def = level.chores.find((c) => c.id === chore)!;
-      if (def.at !== 'rockPile' && !sim.modules.some((m) => m.type === def.at)) {
-        ui.toast(t('crewNoModule', { name: sim.crew[i].name }), 'bad');
-      }
-    }
+    if (!chore) return;
+    const def = level.chores.find((c) => c.id === chore)!;
+    if (def.at !== 'rockPile' && !sim.modules.some((m) => m.type === def.at)) ui.toast(t('crewNoModule', { name: sim.crew[i].name }), 'bad');
+    else ui.toast(t('assigned', { name: sim.crew[i].name, chore: t(`chore_${chore}` as TextKey) }), 'good');
   },
+  callShelter() { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
   toggleLanguage: switchLanguage,
-  toggleShelter() {
-    setShelter(sim, !sim.shelterCall);
-    if (sim.shelterCall) sfx.alarm(); else sfx.allClear();
-  },
+  restart: () => location.reload(),
 });
 
-const phases = () => crew.members.map((m) => m.phase);
+const activities = () => crew.members.map((m) => m.activity);
 const openBuild = () => { unlockPointer(); placing = null; sfx.click(); ui.openBuild(sim); };
-const openCrew = () => { unlockPointer(); sfx.click(); ui.openCrew(sim, phases()); };
-document.getElementById('buildBtn')!.addEventListener('click', openBuild);
-document.getElementById('crewBtn')!.addEventListener('click', openCrew);
-document.getElementById('dataBtn')!.addEventListener('click', () => { unlockPointer(); sfx.click(); ui.dataCard(); });
+const openCrew = (only: number | null = null) => { unlockPointer(); sfx.click(); ui.openCrew(sim, activities(), only); };
+const openPause = () => { unlockPointer(); ui.openPause(); };
+const byId = (id: string) => document.getElementById(id)!;
+byId('buildBtn').addEventListener('click', () => openBuild());
+byId('crewBtn').addEventListener('click', () => openCrew());
+byId('pauseBtn').addEventListener('click', () => openPause());
+byId('dataBtn').addEventListener('click', () => { unlockPointer(); sfx.click(); ui.dataCard(); });
+// A clicked HUD button must not keep keyboard focus, or Space and Enter would press it again.
+document.addEventListener('click', () => { if (!ui.blocking()) (document.activeElement as HTMLElement | null)?.blur?.(); });
+
+// What the player is aiming at: a task on a module, a door, or a crew member.
+function pickTarget(): Target | null {
+  const px = player.pos.x, pz = player.pos.z;
+  const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+  let best: Target | null = null, bestScore = Infinity;
+  const consider = (x: number, z: number, reach: number, close: number, bias: number, make: () => Target) => {
+    const dx = x - px, dz = z - pz, d = Math.hypot(dx, dz);
+    if (d > reach) return;
+    if ((dx * fx + dz * fz) / (d || 1) < 0.2 && d > close) return;
+    if (d + bias < bestScore) { bestScore = d + bias; best = make(); }
+  };
+  for (const m of sim.modules) {
+    if (m.type === 'habitat' || m.type === 'shelter') continue;
+    const r = level.modules[m.type].radius;
+    const job = sim.jobs.find((j) => j.moduleId === m.id);
+    if (!m.broken && !job) continue;
+    const kind: TaskKind = m.broken ? 'repair' : job!.kind;
+    consider(m.x, m.z, r + 3.2, r + 1.5, m.broken ? -1 : 0, () => ({
+      type: 'task', name: modName(m.type),
+      task: { kind, moduleId: m.id, jobId: m.broken ? null : job!.id, x: m.x, z: m.z, reach: r + 3.2 },
+    }));
+  }
+  const door = world.doorNear(px, pz);
+  if (door) consider(door.x, door.z + door.r, 2.6, 1.6, 0.5, () => ({ type: 'door', view: door }));
+  if (!sim.storm) crew.members.forEach((m, index) => consider(m.x, m.z, 2.8, 0, 0.3, () => ({ type: 'crew', index })));
+  return best;
+}
+
+// Quick actions on E or a tap of the action button. Tasks are held, not tapped.
+function actTap(): void {
+  if (ui.blocking() || !target || runner.stage === 'mini') return;
+  if (target.type === 'door') {
+    const open = world.toggleDoor(target.view);
+    sfx.click();
+    ui.toast(t(open ? 'doorOpened' : 'doorClosed'));
+  } else if (target.type === 'crew') {
+    openCrew(target.index);
+  }
+}
+
+function finishTask(tg: TaskTarget, result: TaskResult): void {
+  if (result === 'done') {
+    const m = sim.modules.find((mod) => mod.id === tg.moduleId);
+    if (tg.kind === 'repair') { if (m) fix(sim, m.id); } else if (tg.jobId !== null) completeJob(sim, level, tg.jobId);
+    world.pulse(tg.moduleId);
+    sfx.fix();
+    ui.toast(t(`taskDone_${tg.kind}` as TextKey, { name: m ? modName(m.type) : '' }), 'good');
+  } else {
+    if (result === 'failed') sfx.broke();
+    ui.toast(t(result === 'failed' ? 'taskFailed' : result === 'storm' ? 'taskStorm' : 'taskMoved'), 'bad');
+  }
+}
+
+function seqPress(n: number): void {
+  const tg = runner.target;
+  const r = runner.press(n);
+  if (!tg || r === null) return;
+  if (r === 'ok') sfx.click();
+  else if (r === 'wrong') { sfx.broke(); ui.toast(t('taskWrong'), 'bad'); }
+  else finishTask(tg, r);
+}
 
 addEventListener('keydown', (e) => {
-  if (e.repeat) return;
-  if (e.code === 'Escape') { placing = null; ui.closeMenu(); return; }
+  unlockAudio();
+  if (e.code === 'Tab') e.preventDefault();
   if (ui.blocking()) {
-    if ((e.code === 'KeyB' && ui.menuOpen() === 'build') || (e.code === 'KeyC' && ui.menuOpen() === 'crew')) ui.closeMenu();
+    // Same key that opened a menu closes it again.
+    const kind = ui.menuOpen();
+    if (!e.repeat && ((e.code === 'KeyB' && kind === 'build') || (e.code === 'Tab' && kind === 'crew'))) { ui.closeMenu(); return; }
+    if (ui.handleKey(e)) e.preventDefault();
     return;
   }
-  if (e.code === 'KeyE') { if (placing) uiPlace(); else uiFix(); }
-  else if (e.code === 'KeyB') openBuild();
-  else if (e.code === 'KeyC') openCrew();
-  else if (e.code === 'KeyH' && (sim.storm || sim.shelterCall)) document.getElementById('shelterBtn')!.click();
+  keys.add(e.code);
+  if (e.repeat) return;
+  switch (e.code) {
+    case 'KeyE': if (placing) byId('placeBtn').click(); else actTap(); break;
+    case 'Enter': if (placing) byId('placeBtn').click(); break;
+    case 'KeyB': openBuild(); break;
+    case 'Tab': openCrew(); break;
+    case 'KeyG': if (sim.storm?.phase === 'warning') byId('shelterBtn').click(); break;
+    case 'KeyH': if (lastBot) ui.toast(lastBot, 'bot'); break;
+    case 'Escape': if (placing) placing = null; else openPause(); break;
+    case 'Digit1': case 'Digit2': case 'Digit3': case 'Numpad1': case 'Numpad2': case 'Numpad3':
+      seqPress(Number(e.code.slice(-1)));
+      break;
+  }
 });
-const uiPlace = () => document.getElementById('placeBtn')!.click();
-const uiFix = () => document.getElementById('fixBtn')!.click();
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+// Esc while the mouse is captured only releases the mouse; treat that as "pause".
+document.addEventListener('pointerlockchange', () => {
+  if (!document.pointerLockElement && !ui.blocking() && !placing && sim.status === 'running') openPause();
+});
 // Desktop: with the mouse captured, a click places the module.
-canvas.addEventListener('mousedown', () => { if (placing && document.pointerLockElement === canvas) uiPlace(); });
+canvas.addEventListener('mousedown', () => { if (placing && document.pointerLockElement === canvas) byId('placeBtn').click(); });
 addEventListener('pointerdown', unlockAudio);
-addEventListener('keydown', unlockAudio);
 
 function resize(): void {
   const w = innerWidth, h = innerHeight;
@@ -141,7 +235,7 @@ resize();
 document.title = t('title');
 hintEl.textContent = t('hintDesktop');
 canvas.addEventListener('touchstart', () => { hintEl.textContent = t('hintTouch'); }, { once: true });
-let hintTimer = 12;
+let hintTimer = 25;
 
 ui.card({
   title: t('tutorialTitle'),
@@ -149,7 +243,7 @@ ui.card({
   list: [t('tut1'), t('tut2'), t('tut3'), t('tut4'), t('tut5')],
   button: t('btnStart'),
   onClose: unlockAudio,
-  extra: { label: t('btnLang'), onClick: switchLanguage },
+  extra: [{ label: t('btnLang'), onClick: switchLanguage }],
 });
 
 function handleEvents(): void {
@@ -162,8 +256,23 @@ function handleEvents(): void {
         ui.toast(t(`broke_${e.reason}` as TextKey, { name: modName(m.type) }), 'bad');
         break;
       }
-      case 'stormWarn': sfx.alarm(); break;
-      case 'stormStart': sfx.alarm(); break;
+      case 'job': {
+        const job = sim.jobs.find((j) => j.id === e.id);
+        if (job) { sfx.part(); ui.toast(t('jobNew', { job: t(`job_${job.kind}` as TextKey) })); }
+        break;
+      }
+      case 'choreDone': ui.toast(t('choreDone', { name: sim.crew[e.crew].name, chore: t(`chore_${e.chore}` as TextKey) }), 'good'); break;
+      case 'stormWarn': sfx.alarm(); sirenAt = clock + 12; bot('botStorm'); break;
+      case 'stormStart': {
+        sfx.alarm();
+        bot('botImpact');
+        if (sim.playerExposure > 0) {
+          const tg = runner.target;
+          const r = runner.cancel('storm');
+          if (tg && r) finishTask(tg, r);
+        }
+        break;
+      }
       case 'stormEnd': {
         sfx.allClear();
         ui.toast(t('stormOver'), 'good');
@@ -202,9 +311,35 @@ function handleEvents(): void {
   sim.outbox.length = 0;
 }
 
+function updatePrompt(): void {
+  const touch = isTouch();
+  if (runner.stage === 'mini') {
+    ui.setPrompt(null, runner.mini === 'gauge' ? t('btnAct_pump') : null);
+    return;
+  }
+  if (!target || placing) { ui.setPrompt(null, null); return; }
+  if (target.type === 'task') {
+    const action = t(`do_${target.task.kind}` as TextKey, { name: target.name });
+    ui.setPrompt(touch ? t('promptHoldTouch', { action }) : t('promptHold', { key: 'E', action }), t(`btnAct_${target.task.kind}` as TextKey));
+  } else {
+    const action = target.type === 'door'
+      ? t(target.view.blocker.ring!.open ? 'do_closeDoor' : 'do_openDoor')
+      : t('do_talk', { name: sim.crew[target.index].name });
+    ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t(target.type === 'door' ? 'btnAct_door' : 'btnAct_talk'));
+  }
+}
+
+function jobList(): { text: string; urgent: boolean }[] {
+  const out: { text: string; urgent: boolean }[] = [];
+  for (const m of sim.modules) if (m.broken) out.push({ text: t('job_repair', { name: modName(m.type) }), urgent: true });
+  for (const j of sim.jobs) out.push({ text: t(`job_${j.kind}` as TextKey), urgent: false });
+  return out;
+}
+
 const TICK = 1 / level.tickHz;
 let simAcc = 0;
-ui.update(sim, clock);
+ui.update(sim, clock, 0);
+ui.setJobs(jobList());
 player.update(0, input.state); // place the camera before the first (paused) frame
 
 // FPS meter: average + worst frame over each half second, for the phone gate.
@@ -215,35 +350,53 @@ renderer.setAnimationLoop((now) => {
   const dt = Math.min(rawDt, 0.05);
   const paused = ui.blocking() || sim.status !== 'running';
 
-  if (!paused) {
+  for (let rep = paused ? fastForward : 0; rep < fastForward; rep++) {
+    if (ui.blocking() || sim.status !== 'running') break;
     clock += dt;
-    player.update(dt, input.state);
+    const lookDX = input.state.lookDX;
+    player.update(dt, input.state, keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    const px = player.pos.x, pz = player.pos.z;
 
-    const hab = level.modules.habitat.radius;
-    sim.playerSheltered = Math.hypot(player.pos.x, player.pos.z) < hab + 2.5;
-    crew.update(dt, sim);
+    // Only the shelter stops the radiation; the station's thin walls stop half.
+    const inside = world.buildingAt(px, pz);
+    sim.playerExposure = inside < 0 ? 1 : world.buildings[inside].type === 'shelter' ? 0 : 0.5;
+    crew.update(dt, sim, px, pz);
 
     simAcc += dt;
     let ticked = false;
     while (simAcc >= TICK) { step(sim, level, TICK); simAcc -= TICK; ticked = true; }
-    if (ticked) { handleEvents(); ui.update(sim, clock); }
+    if (ticked) { handleEvents(); ui.update(sim, clock, crew.safeCount(sim)); ui.setJobs(jobList()); }
 
-    world.update(dt, sim, clock);
+    world.update(dt, sim, clock, px, pz, crew.positions());
 
     // Build ghost follows where the player is looking, on the ground.
     if (placing) {
       const dist = player.pitch < -0.05 ? Math.max(4, Math.min(12, 1.7 / Math.tan(-player.pitch))) : 12;
-      placeX = player.pos.x - Math.sin(player.yaw) * dist;
-      placeZ = player.pos.z - Math.cos(player.yaw) * dist;
+      placeX = px - Math.sin(player.yaw) * dist;
+      placeZ = pz - Math.cos(player.yaw) * dist;
       placeOk = canPlace(sim, level, placing, placeX, placeZ);
     }
     world.setGhost(placing, placeX, placeZ, placeOk);
     ui.setPlacing(!!placing, placeOk);
 
-    fixId = placing ? null : world.fixTarget(sim, player.pos.x, player.pos.z, player.yaw);
-    ui.setFix(fixId !== null);
+    // Interaction: aim, hold, then the mini-step.
+    if (runner.stage !== 'mini') target = placing ? null : pickTarget();
+    const holding = keys.has('KeyE') || ui.actHeld();
+    const tg = runner.target;
+    const result = runner.update(dt, holding, lookDX, target?.type === 'task' ? target.task : null, px, pz);
+    if (result && tg) finishTask(tg, result);
+    if (runner.stage === 'hold' && holding) { holdTick -= dt; if (holdTick <= 0) { holdTick = 0.22; sfx.click(); } }
+    ui.setRing(runner.stage === 'hold' ? runner.hold : 0);
+    ui.renderTask(runner, isTouch());
+    updatePrompt();
 
-    if (sim.storm?.phase === 'active' && !sim.playerSheltered && Math.random() < dt * 20) sfx.geiger();
+    // Storm: siren during the warning, clicks from the radiation counter when exposed, and a red sky.
+    if (sim.storm?.phase === 'warning' && clock >= sirenAt) { sirenAt = clock + 12; sfx.alarm(); }
+    if (sim.storm?.phase === 'active' && sim.playerExposure > 0 && Math.random() < dt * 22 * sim.playerExposure) sfx.geiger();
+    const want = sim.storm ? (sim.storm.phase === 'active' ? 1 : 0.4) : 0;
+    skyMix += (want - skyMix) * Math.min(1, dt * 0.8);
+    sky.setRGB(0.2 * skyMix, 0.035 * skyMix, 0.012 * skyMix);
+    sun.color.copy(SUN_CALM).lerp(SUN_STORM, skyMix);
 
     if (hintTimer > 0) { hintTimer -= dt; if (hintTimer <= 0) hintEl.style.display = 'none'; }
   }

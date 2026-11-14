@@ -3,20 +3,23 @@ import { solarEvent } from '../data/moon.ts';
 import { apollo, FULL_METER_REM } from '../data/apollo.ts';
 import meta from '../data/solar-event.meta.json' with { type: 'json' };
 import { t, type TextKey } from '../i18n/en';
-import type { CrewPhase } from '../game/crew';
+import { GAUGE_ZONE, type TaskRunner } from '../game/tasks';
 
 export interface UiHandlers {
   pickBuild(type: ModuleType): void;
   place(): void;
   cancelPlace(): void;
-  fix(): void;
+  actDown(): void; // touch action button pressed
+  seqPress(n: number): void;
   assign(crewIndex: number, chore: ChoreId | null): void;
-  toggleShelter(): void;
+  callShelter(): void;
   toggleLanguage(): void;
+  restart(): void;
   click(): void;
 }
 
 interface Bar { fill: HTMLElement; value: HTMLElement; row: HTMLElement; last: number }
+export interface CardOpts { title: string; paragraphs?: string[]; list?: string[]; source?: string; button: string; onClose?: () => void; extra?: { label: string; onClick: () => void }[] }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] => {
@@ -27,6 +30,8 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = ''):
 };
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const utc = (iso: string) => iso.replace('T', ' ').replace('Z', '');
+// Turns "[E]" in a translated string into a key cap. Text is ours, never user input.
+const keycaps = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\[([^\]]+)\]/g, '<kbd>$1</kbd>');
 
 const BARS: { key: 'power' | 'air' | 'food' | 'radiation'; color: string }[] = [
   { key: 'power', color: '#ffd24a' },
@@ -35,44 +40,50 @@ const BARS: { key: 'power' | 'air' | 'food' | 'radiation'; color: string }[] = [
   { key: 'radiation', color: '#ff6b5a' },
 ];
 const BUILDABLE: ModuleType[] = ['solar', 'battery', 'lifeSupport', 'tank', 'greenhouse'];
-const PHASE_TEXT: Record<CrewPhase, TextKey> = {
-  idle: 'crewIdle', walking: 'crewWalking', working: 'crewIdle', waiting: 'crewWaiting', sheltered: 'crewSheltered', noModule: 'crewIdle',
-};
 
 export function createUi(cfg: LevelConfig, h: UiHandlers) {
   const bars = {} as Record<string, Bar>;
   for (const b of BARS) {
     const row = el('div', 'row');
-    const label = el('span', 'label', t(b.key));
     const track = el('span', 'track');
     const fill = el('i');
     fill.style.background = b.color;
     track.appendChild(fill);
     const value = el('span', 'value');
-    row.append(label, track, value);
+    row.append(el('span', 'label', t(b.key)), track, value);
     $('bars').appendChild(row);
     bars[b.key] = { fill, value, row, last: -1 };
   }
   $('partsLabel').textContent = t('parts');
   $('buildBtn').textContent = t('btnBuild');
   $('crewBtn').textContent = t('btnCrew');
-  $('fixBtn').textContent = t('btnFix');
   $('jump').textContent = t('btnJump');
   $('placeBtn').textContent = t('btnPlace');
   $('cancelBtn').textContent = t('btnCancel');
   $('dataBtn').textContent = t('btnData');
+  $('pauseBtn').textContent = t('btnPause');
+  $('shelterBtn').textContent = t('btnShelter');
   $('sourceCard').replaceChildren(el('b', '', t('sourceCardTitle')), el('span', '', t('sourceCardText')));
 
   const menu = $('menu'), menuCard = $('menuCard'), overlay = $('overlay'), overlayCard = $('overlayCard');
   const banner = $('banner'), shelterBtn = $('shelterBtn'), storm = $('storm');
-  let flashText = '', flashUntil = 0, lastBanner = '';
-  let menuKind: 'build' | 'crew' | null = null;
+  const actBtn = $('actBtn'), taskBox = $('task'), seq = $('seq'), gauge = $('gauge');
+  let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = '', lastPrompt = '', lastTask = '';
+  let menuKind: 'build' | 'crew' | 'pause' | null = null;
+  let actHeld = false;
 
   const press = (id: string, fn: () => void) => $(id).addEventListener('click', (e) => { e.stopPropagation(); fn(); });
-  press('fixBtn', () => h.fix());
   press('placeBtn', () => h.place());
   press('cancelBtn', () => h.cancelPlace());
-  press('shelterBtn', () => h.toggleShelter());
+  press('shelterBtn', () => h.callShelter());
+
+  // Action button: hold for tasks, so it tracks pointer down and up rather than clicks.
+  actBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); actHeld = true; actBtn.classList.add('held'); h.actDown(); });
+  const release = () => { actHeld = false; actBtn.classList.remove('held'); };
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) actBtn.addEventListener(ev, release);
+  actBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+  seq.querySelectorAll('button').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); h.seqPress(Number(b.dataset.n)); }));
+  (gauge.querySelector('.zone') as HTMLElement).style.cssText += `left:${GAUGE_ZONE[0] * 100}%;width:${(GAUGE_ZONE[1] - GAUGE_ZONE[0]) * 100}%`;
 
   const setBar = (key: string, v: number, cap: number, lowIsBad: boolean) => {
     const b = bars[key];
@@ -84,14 +95,57 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     b.row.classList.toggle('warn', lowIsBad ? pct <= 25 : pct >= 60);
   };
 
-  const closeMenu = () => { menu.classList.remove('on'); menuKind = null; };
+  const focusFirst = (card: HTMLElement) => (card.querySelector('button:not(:disabled)') as HTMLElement | null)?.focus({ preventScroll: true });
+  const blur = () => (document.activeElement as HTMLElement | null)?.blur?.();
+  const closeMenu = () => { menu.classList.remove('on'); menuKind = null; blur(); };
+  const closeOverlay = () => { overlay.classList.remove('on'); blur(); };
+
+  // A numbered menu row. Number keys 1-9 pick it; arrows and Enter work too.
+  const option = (n: number, title: string, sub: string, right: string, onPick: () => void, on = false): HTMLButtonElement => {
+    const b = el('button', `opt${on ? ' on' : ''}`);
+    b.dataset.n = String(n);
+    b.append(el('i', '', String(n)), el('b', '', title), el('em', '', right), el('span', '', sub));
+    b.addEventListener('click', () => { h.click(); onPick(); });
+    return b;
+  };
+  const closer = (label = t('btnClose'), fn: () => void = closeMenu) => {
+    const c = el('button', 'close', label);
+    c.addEventListener('click', fn);
+    return c;
+  };
 
   const ui = {
     blocking: () => menu.classList.contains('on') || overlay.classList.contains('on'),
     menuOpen: () => menuKind,
     closeMenu,
+    actHeld: () => actHeld,
 
-    update(sim: SimState, nowS: number): void {
+    // Keyboard control of whatever menu or card is open. Returns true if the key was used.
+    handleKey(e: KeyboardEvent): boolean {
+      const card = overlay.classList.contains('on') ? overlayCard : menu.classList.contains('on') ? menuCard : null;
+      if (!card) return false;
+      const buttons = Array.from(card.querySelectorAll('button:not(:disabled)')) as HTMLElement[];
+      const at = buttons.indexOf(document.activeElement as HTMLElement);
+      if (e.code === 'ArrowDown' || e.code === 'ArrowRight') { buttons[(at + 1) % buttons.length]?.focus(); return true; }
+      if (e.code === 'ArrowUp' || e.code === 'ArrowLeft') { buttons[(at - 1 + buttons.length) % buttons.length]?.focus(); return true; }
+      if (/^(Digit|Numpad)[1-9]$/.test(e.code)) {
+        (card.querySelector(`button[data-n="${e.code.slice(-1)}"]:not(:disabled)`) as HTMLElement | null)?.click();
+        return true;
+      }
+      if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
+        if (at < 0) ((card.querySelector('.main') ?? buttons[0]) as HTMLElement | null)?.click();
+        else buttons[at].click();
+        return true;
+      }
+      if (e.code === 'Escape') {
+        if (card === menuCard) closeMenu();
+        else (card.querySelector('.main') as HTMLElement | null)?.click();
+        return true;
+      }
+      return false;
+    },
+
+    update(sim: SimState, nowS: number, crewSafe: number): void {
       const cap = caps(sim, cfg);
       setBar('power', sim.power, cap.power, true);
       setBar('air', sim.air, cap.air, true);
@@ -101,21 +155,21 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       $('sol').textContent = t('sol', { n: Math.floor(sim.time / cfg.solLength) + 1 });
       $('timeLeft').textContent = t('timeLeft', { t: mmss(Math.max(0, cfg.missionLength - sim.time)) });
 
-      // Banner: a storm always wins over a temporary message.
       let html = '', cls = '';
       if (sim.storm) {
         // Each line of small print is a step of the real record chain: flare, then CME, then protons.
         const d = cfg.storms[sim.storm.index];
         const i = d.info;
+        const safe = `<span class="state ${crewSafe === sim.crew.length ? 'good' : 'bad'}">${t('crewSafe', { n: crewSafe, m: sim.crew.length })}</span>`;
         if (sim.storm.phase === 'warning') {
           let stage = t('stageFlare', { cls: i.flareClass, time: utc(i.flareTimeUtc) });
           if (sim.time >= i.cmeAt && i.cmeSpeedKmS) stage += ' ' + t('stageCme', { speed: i.cmeSpeedKmS });
-          html = `${t('stormWarn', { s: Math.ceil(d.startAt - sim.time) })}<small>${stage}</small>`;
+          html = `${t('stormWarn', { s: Math.ceil(d.startAt - sim.time) })}${sim.shelterCall ? safe : ''}<small>${stage}</small>`;
         } else {
-          const safe = sim.playerSheltered;
+          const e = sim.playerExposure;
           const stage = t('stageSep', { time: utc(i.sepTimeUtc), instrument: i.sepInstrument });
           html = `${t('stormActive', { s: Math.ceil(d.startAt + d.duration - sim.time) })}` +
-            `<span class="state ${safe ? 'good' : 'bad'}">${t(safe ? 'safe' : 'exposed')}</span><small>${stage}</small>`;
+            `<span class="state ${e <= 0 ? 'good' : 'bad'}">${t(e <= 0 ? 'safe' : e < 1 ? 'half' : 'exposed')}</span>${safe}<small>${stage}</small>`;
         }
       } else if (nowS < flashUntil) {
         html = flashText; cls = 'info';
@@ -126,22 +180,70 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         banner.className = cls;
         banner.style.display = html ? 'block' : 'none';
       }
+      $('hint').style.visibility = html ? 'hidden' : 'visible';
 
-      const showShelter = !!sim.storm || sim.shelterCall;
+      const showShelter = sim.storm?.phase === 'warning' && !sim.shelterCall;
       shelterBtn.style.display = showShelter ? 'block' : 'none';
-      if (showShelter) {
-        shelterBtn.textContent = t(sim.shelterCall ? 'btnAllClear' : 'btnShelter');
-        shelterBtn.classList.toggle('clear', sim.shelterCall);
-        shelterBtn.style.top = `${banner.offsetHeight + 18}px`;
-      }
+      if (showShelter) shelterBtn.style.top = `${banner.offsetHeight + 18}px`;
       $('sourceCard').style.display = sim.storm ? 'block' : 'none';
       const active = sim.storm?.phase === 'active';
-      storm.className = active ? (sim.playerSheltered ? 'on' : 'on exposed') : '';
+      storm.className = active ? (sim.playerExposure <= 0 ? 'on' : 'on exposed') : sim.storm ? 'warn' : '';
+    },
+
+    setJobs(items: { text: string; urgent: boolean }[]): void {
+      const sig = items.map((i) => i.text + i.urgent).join('|');
+      if (sig === lastJobs) return;
+      lastJobs = sig;
+      const box = $('jobs');
+      box.replaceChildren(el('b', '', t('jobsTitle')));
+      if (items.length === 0) box.appendChild(el('div', '', t('jobsNone')));
+      for (const i of items.slice(0, 5)) box.appendChild(el('div', i.urgent ? 'urgent' : '', (i.urgent ? '! ' : '★ ') + i.text));
+    },
+
+    // Prompt under the crosshair, plus the touch action button's label.
+    setPrompt(text: string | null, button: string | null): void {
+      const sig = `${text}|${button}`;
+      if (sig !== lastPrompt) {
+        lastPrompt = sig;
+        const p = $('prompt');
+        p.style.display = text ? 'block' : 'none';
+        if (text) p.innerHTML = keycaps(text);
+        actBtn.classList.toggle('on', !!button);
+        if (button) actBtn.textContent = button;
+        $('dot').classList.toggle('hot', !!text);
+      }
+    },
+
+    setRing(p: number): void { $('cross').style.setProperty('--p', String(Math.round(p * 100))); },
+
+    // Mini-step panel. Drawn straight from the task runner's state each frame.
+    renderTask(run: TaskRunner, touch: boolean): void {
+      const on = run.stage === 'mini';
+      const sig = on ? `${run.target!.kind}${touch}` : '';
+      if (sig !== lastTask) {
+        lastTask = sig;
+        taskBox.style.display = on ? 'block' : 'none';
+        if (on) {
+          const kind = run.target!.kind;
+          $('taskTitle').textContent = t(`taskTitle_${kind}` as TextKey);
+          const hintKey = run.mini === 'sequence' ? 'miniSeq' : run.mini === 'gauge' ? 'miniGauge' : kind === 'water' ? 'miniWater' : 'miniWipe';
+          $('taskHint').innerHTML = keycaps(t(`${hintKey}${touch ? 'Touch' : ''}` as TextKey));
+          seq.style.display = run.mini === 'sequence' ? 'flex' : 'none';
+          gauge.style.display = run.mini === 'gauge' ? 'block' : 'none';
+        }
+      }
+      if (!on) return;
+      $('taskBar').style.width = `${Math.min(100, run.progress * 100)}%`;
+      if (run.mini === 'sequence') {
+        const want = run.order[run.index];
+        seq.classList.toggle('wrong', run.flash > 0);
+        seq.querySelectorAll('button').forEach((b) => b.classList.toggle('lit', run.flash <= 0 && Number(b.dataset.n) === want));
+      } else if (run.mini === 'gauge') {
+        (gauge.querySelector('.needle') as HTMLElement).style.left = `${run.level * 100}%`;
+      }
     },
 
     flash(text: string, nowS: number, seconds: number): void { flashText = text; flashUntil = nowS + seconds; },
-
-    setFix(on: boolean): void { $('fixBtn').classList.toggle('on', on); },
 
     setPlacing(active: boolean, ok: boolean): void {
       document.body.classList.toggle('placing', active);
@@ -150,65 +252,69 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       $('placeHint').textContent = t(ok ? 'placeHint' : 'placeBad');
     },
 
-    toast(text: string, kind: '' | 'good' | 'bad' = ''): void {
+    toast(text: string, kind: '' | 'good' | 'bad' | 'bot' = ''): void {
       const box = $('toasts');
       const n = el('div', `toast ${kind}`, text);
       box.appendChild(n);
       while (box.children.length > 3) box.firstElementChild!.remove();
-      setTimeout(() => n.remove(), 4500);
+      setTimeout(() => n.remove(), kind === 'bot' ? 7000 : 4500);
     },
 
     openBuild(sim: SimState): void {
       menuKind = 'build';
-      menuCard.replaceChildren(el('h2', '', t('buildTitle')));
-      const info = el('p', '', `${t('parts')}: ${sim.parts}`);
-      menuCard.appendChild(info);
+      menuCard.replaceChildren(el('h2', '', t('buildTitle')), el('p', '', `${t('parts')}: ${sim.parts}`));
       let affordable = false;
-      for (const type of BUILDABLE) {
+      BUILDABLE.forEach((type, i) => {
         const def = cfg.modules[type];
-        const b = el('button', 'opt');
-        b.append(el('b', '', t(`mod_${type}` as TextKey)), el('em', '', t('buildCost', { n: def.cost })), el('span', '', t(`modInfo_${type}` as TextKey)));
+        const b = option(i + 1, t(`mod_${type}` as TextKey), t(`modInfo_${type}` as TextKey), t('buildCost', { n: def.cost }), () => { closeMenu(); h.pickBuild(type); });
         b.disabled = sim.parts < def.cost;
         if (!b.disabled) affordable = true;
-        b.addEventListener('click', () => { h.click(); closeMenu(); h.pickBuild(type); });
         menuCard.appendChild(b);
-      }
+      });
       if (!affordable) menuCard.appendChild(el('p', 'note', t('buildNoParts')));
-      const close = el('button', 'close', t('btnClose'));
-      close.addEventListener('click', closeMenu);
-      menuCard.appendChild(close);
+      menuCard.append(closer(), el('p', 'keys', t('menuKeys')));
+      menu.classList.add('on');
+      focusFirst(menuCard);
+    },
+
+    // Two steps: pick who, then pick what. `only` jumps straight to one crew member.
+    openCrew(sim: SimState, activities: string[], only: number | null = null): void {
+      menuKind = 'crew';
+      const who = () => {
+        menuCard.replaceChildren(el('h2', '', t('crewPick')));
+        sim.crew.forEach((c, i) => {
+          const doing = c.chore ? t(`chore_${c.chore}` as TextKey) : t(`act_${activities[i]}` as TextKey);
+          menuCard.appendChild(option(i + 1, c.name, doing, '', () => what(i), !!c.chore));
+        });
+        menuCard.append(closer(), el('p', 'keys', t('menuKeys')));
+        focusFirst(menuCard);
+      };
+      const what = (i: number) => {
+        const c = sim.crew[i];
+        menuCard.replaceChildren(el('h2', '', t('crewDo', { name: c.name })));
+        cfg.chores.forEach((ch, n) => {
+          menuCard.appendChild(option(n + 1, t(`chore_${ch.id}` as TextKey), t(`choreGain_${ch.id}` as TextKey), '', () => { h.assign(i, ch.id); closeMenu(); }, c.chore === ch.id));
+        });
+        menuCard.appendChild(option(cfg.chores.length + 1, t('choreRest'), '', '', () => { h.assign(i, null); closeMenu(); }, c.chore === null));
+        menuCard.append(closer(t('btnBack'), only === null ? who : closeMenu), el('p', 'keys', t('menuKeys')));
+        focusFirst(menuCard);
+      };
+      if (only === null) who(); else what(only);
       menu.classList.add('on');
     },
 
-    openCrew(sim: SimState, phases: CrewPhase[]): void {
-      menuKind = 'crew';
-      const render = () => {
-        menuCard.replaceChildren(el('h2', '', t('crewTitle')));
-        sim.crew.forEach((c, i) => {
-          const row = el('div', 'crewRow');
-          const head = el('h3', '', c.name);
-          const status = sim.shelterCall ? t('crewSheltered') : c.chore ? t(`chore_${c.chore}` as TextKey) : t(PHASE_TEXT[phases[i]]);
-          head.appendChild(el('small', '', status));
-          row.appendChild(head);
-          const chips = el('div', 'chips');
-          for (const ch of cfg.chores) {
-            const b = el('button', `chip${c.chore === ch.id ? ' on' : ''}`, t(`chore_${ch.id}` as TextKey));
-            b.appendChild(el('small', '', t(`choreGain_${ch.id}` as TextKey)));
-            b.addEventListener('click', () => { h.click(); h.assign(i, ch.id); render(); });
-            chips.appendChild(b);
-          }
-          const rest = el('button', `chip${c.chore === null ? ' on' : ''}`, t('choreRest'));
-          rest.addEventListener('click', () => { h.click(); h.assign(i, null); render(); });
-          chips.appendChild(rest);
-          row.appendChild(chips);
-          menuCard.appendChild(row);
-        });
-        const close = el('button', 'close', t('btnClose'));
-        close.addEventListener('click', closeMenu);
-        menuCard.appendChild(close);
-      };
-      render();
+    openPause(): void {
+      menuKind = 'pause';
+      menuCard.replaceChildren(el('h2', '', t('pauseTitle')));
+      const resume = el('button', 'main', t('btnResume'));
+      resume.addEventListener('click', closeMenu);
+      menuCard.appendChild(resume);
+      menuCard.appendChild(option(1, t('btnData'), t('sourceCardTitle'), '', () => { closeMenu(); ui.dataCard(); }));
+      menuCard.appendChild(option(2, t('btnLang'), '', '', () => h.toggleLanguage()));
+      menuCard.appendChild(option(3, t('btnRestart'), '', '', () => h.restart()));
+      menuCard.appendChild(el('p', 'keys', `${t('hintDesktop')} · ${t('menuKeys')}`));
       menu.classList.add('on');
+      resume.focus({ preventScroll: true });
     },
 
     // Menu info screen: what is real NASA data, what is historical context, and what is made up for the game.
@@ -236,16 +342,15 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       overlayCard.appendChild(el('p', '', t('apollo4')));
       overlayCard.appendChild(el('p', '', t('apolloMeter', { bfo: FULL_METER_REM })));
       overlayCard.appendChild(el('p', 'src', t('apolloSource')));
-      const lang = el('button', 'close', t('btnLang'));
-      lang.addEventListener('click', () => h.toggleLanguage());
       const b = el('button', 'main', t('btnClose'));
-      b.addEventListener('click', () => overlay.classList.remove('on'));
-      overlayCard.append(lang, b);
+      b.addEventListener('click', closeOverlay);
+      overlayCard.appendChild(b);
       overlayCard.scrollTop = 0;
       overlay.classList.add('on');
+      b.focus({ preventScroll: true });
     },
 
-    card(opts: { title: string; paragraphs?: string[]; list?: string[]; source?: string; button: string; onClose?: () => void; extra?: { label: string; onClick: () => void } }): void {
+    card(opts: CardOpts): void {
       overlayCard.replaceChildren(el('h2', '', opts.title));
       for (const p of opts.paragraphs ?? []) overlayCard.appendChild(el('p', '', p));
       if (opts.list) {
@@ -254,15 +359,12 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         overlayCard.appendChild(ul);
       }
       if (opts.source) overlayCard.appendChild(el('p', 'src', opts.source));
-      if (opts.extra) {
-        const x = el('button', 'close', opts.extra.label);
-        x.addEventListener('click', opts.extra.onClick);
-        overlayCard.appendChild(x);
-      }
       const b = el('button', 'main', opts.button);
-      b.addEventListener('click', () => { overlay.classList.remove('on'); opts.onClose?.(); });
+      b.addEventListener('click', () => { closeOverlay(); opts.onClose?.(); });
       overlayCard.appendChild(b);
+      for (const x of opts.extra ?? []) overlayCard.appendChild(closer(x.label, x.onClick));
       overlay.classList.add('on');
+      b.focus({ preventScroll: true });
     },
 
     end(sim: SimState, onAgain: () => void): void {
@@ -288,13 +390,14 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         }
         overlayCard.appendChild(el('p', 'why', why));
       }
-      overlayCard.appendChild(el('p', '', `${t('reportTitle')}: ${t('reportStats', { t: mmss(sim.time), fixes: sim.stats.fixes, builds: sim.stats.builds })}`));
+      overlayCard.appendChild(el('p', '', `${t('reportTitle')}: ${t('reportStats', { t: mmss(sim.time), fixes: sim.stats.fixes + sim.stats.jobs, builds: sim.stats.builds })}`));
       overlayCard.appendChild(drawChart(sim, cfg));
       overlayCard.appendChild(el('p', 'src', t('creditsLine')));
       const b = el('button', 'main', t('btnAgain'));
       b.addEventListener('click', onAgain);
       overlayCard.appendChild(b);
       overlay.classList.add('on');
+      b.focus({ preventScroll: true });
     },
   };
   return ui;

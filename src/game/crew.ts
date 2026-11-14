@@ -1,106 +1,218 @@
 import * as THREE from 'three';
-import type { LevelConfig, SimState } from '../sim/sim.ts';
-import { createAstronaut, createLabel, type Astronaut } from '../render/models';
+import type { ChoreId, LevelConfig, ModuleType, SimState } from '../sim/sim.ts';
+import { createAstronaut, type Astronaut } from '../render/models';
+import { createTag } from '../render/building';
 import { heightAt } from '../render/terrain';
-import type { Blocker } from './player';
+import { resolve, type Blocker } from './collide';
+import type { World } from './world';
+import { t, type TextKey } from '../i18n/en';
 
-export type CrewPhase = 'idle' | 'walking' | 'working' | 'waiting' | 'sheltered' | 'noModule';
+export type Activity = 'walking' | 'running' | 'watering' | 'wiping' | 'carrying' | 'tablet' | 'break' | 'sheltering' | 'waiting' | 'greeting';
 
-interface Member { model: Astronaut; x: number; z: number; facing: number; phase: CrewPhase; anim: number; idleX: number; idleZ: number }
+interface Stop { key: string; x: number; z: number; reach: number; inside: number; act: Activity; moduleId: number | null }
+interface Member {
+  model: Astronaut; crate: THREE.Mesh; tag: ReturnType<typeof createTag>;
+  x: number; z: number; facing: number; anim: number;
+  activity: Activity;
+  goalKey: string; path: { x: number; z: number }[]; stop: Stop | null; arrived: boolean;
+  routineIndex: number; dwell: number; greet: number; greetCooldown: number;
+}
 
-const SPEED = 3.2;
+const SPEED = 2.6;
 const SUITS = [0xff8a3d, 0x4fc3e8, 0xc77dff];
+const ROUTINE = ['garden', 'canteen', 'solar', 'workshop', 'life'] as const;
+const CHORE_STOP: Record<ChoreId, (typeof ROUTINE)[number]> = { tomatoes: 'garden', panels: 'solar', rocks: 'workshop', filters: 'life' };
 
-// Walks each crew member to their chore, the shelter or their rest spot, and tells the sim when they arrive.
+// Crew live their own day: they walk a routine between work spots, do a visible activity at each,
+// greet the player, take assigned chores, and run for the shelter in a storm.
 export class Crew {
   members: Member[] = [];
 
-  constructor(scene: THREE.Scene, sim: SimState, private cfg: LevelConfig, private blockers: Blocker[]) {
-    sim.crew.forEach((c, i) => {
+  constructor(scene: THREE.Scene, sim: SimState, private cfg: LevelConfig, private blockers: Blocker[], private world: World) {
+    sim.crew.forEach((_, i) => {
       const model = createAstronaut(SUITS[i % SUITS.length]);
-      const label = createLabel(c.name);
-      label.position.y = 2.45;
-      model.group.add(label);
-      const idleX = (i - 1) * 2.6, idleZ = 8.5 + (i % 2) * 1.5;
-      model.group.position.set(idleX, heightAt(idleX, idleZ), idleZ);
+      const tag = createTag();
+      tag.sprite.position.y = 2.5;
+      model.group.add(tag.sprite);
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: 0xb58a4a, flatShading: true }));
+      crate.position.set(0, 1.1, 0.5); crate.visible = false;
+      model.group.add(crate);
+      const x = (i - 1) * 2.4, z = 11 + (i % 2) * 1.5;
       scene.add(model.group);
-      this.members.push({ model, x: idleX, z: idleZ, facing: 0, phase: 'idle', anim: i, idleX, idleZ });
+      this.members.push({
+        model, crate, tag, x, z, facing: 0, anim: i * 1.7, activity: 'walking',
+        goalKey: '', path: [], stop: null, arrived: false,
+        routineIndex: (i * 2) % ROUTINE.length, dwell: 0, greet: 0, greetCooldown: 4 + i * 3,
+      });
     });
   }
 
-  update(dt: number, sim: SimState): void {
+  positions(): { x: number; z: number }[] { return this.members; }
+
+  safeCount(sim: SimState): number { return sim.crew.filter((c) => c.sheltered).length; }
+
+  private moduleStop(sim: SimState, type: ModuleType, act: Activity, m: Member, key: string): Stop | null {
+    let best = null as null | { id: number; x: number; z: number }, bestScore = Infinity;
+    for (const mod of sim.modules) {
+      if (mod.type !== type) continue;
+      const score = Math.hypot(mod.x - m.x, mod.z - m.z) + (mod.broken ? 1000 : 0);
+      if (score < bestScore) { bestScore = score; best = mod; }
+    }
+    if (!best) return null;
+    return { key: `${key}:${best.id}`, x: best.x, z: best.z, reach: this.cfg.modules[type].radius + 1.0, inside: -1, act, moduleId: best.id };
+  }
+
+  private stopFor(sim: SimState, name: string, i: number, m: Member): Stop | null {
+    const w = this.world;
+    switch (name) {
+      case 'garden': return this.moduleStop(sim, 'greenhouse', 'watering', m, name);
+      case 'solar': return this.moduleStop(sim, 'solar', 'wiping', m, name);
+      case 'life': return this.moduleStop(sim, 'lifeSupport', 'tablet', m, name);
+      case 'workshop': {
+        const r = this.cfg.rockPile;
+        return { key: name, x: r.x, z: r.z, reach: r.radius + 1.0, inside: -1, act: 'carrying', moduleId: null };
+      }
+      case 'canteen': {
+        const idx = w.buildings.findIndex((b) => b.type === 'habitat');
+        if (idx < 0) return null;
+        const b = w.buildings[idx];
+        const a = 0.6 + i * 2.1; // seats around the table
+        return { key: name, x: b.x - b.r + 2.6 + Math.sin(a) * 1.3, z: b.z + 1.4 + Math.cos(a) * 1.3, reach: 0.35, inside: idx, act: 'break', moduleId: null };
+      }
+      case 'shelter': {
+        const idx = w.buildings.findIndex((b) => b.type === 'shelter');
+        if (idx < 0) return null;
+        const b = w.buildings[idx];
+        return { key: name, x: b.x + (i - 1) * 1.7, z: b.z - 1.5 - (i === 1 ? 0.6 : 0), reach: 0.35, inside: idx, act: 'sheltering', moduleId: null };
+      }
+    }
+    return null;
+  }
+
+  // Route through doorways: leave the building we are in, then enter the one we want.
+  private route(m: Member, stop: Stop): { x: number; z: number }[] {
+    const pts: { x: number; z: number }[] = [];
+    const cur = this.world.buildingAt(m.x, m.z);
+    const doorOut = (i: number) => ({ x: this.world.buildings[i].x, z: this.world.buildings[i].z + this.world.buildings[i].r + 1.3 });
+    const doorIn = (i: number) => ({ x: this.world.buildings[i].x, z: this.world.buildings[i].z + this.world.buildings[i].r - 1.5 });
+    if (cur >= 0 && cur !== stop.inside) pts.push(doorIn(cur), doorOut(cur));
+    if (stop.inside >= 0 && cur !== stop.inside) pts.push(doorOut(stop.inside), doorIn(stop.inside));
+    pts.push({ x: stop.x, z: stop.z });
+    return pts;
+  }
+
+  update(dt: number, sim: SimState, px: number, pz: number): void {
+    const storm = sim.storm?.phase === 'active';
     this.members.forEach((m, i) => {
       const c = sim.crew[i];
-      let tx = m.idleX, tz = m.idleZ, stopAt = 0.3;
-      let onArrive: CrewPhase = 'idle';
-      let targetBroken = false;
+      m.greetCooldown -= dt;
 
-      if (sim.shelterCall) {
-        tx = 0; tz = 0; stopAt = this.cfg.modules.habitat.radius + 1.0; onArrive = 'sheltered';
-      } else if (c.chore) {
-        const def = this.cfg.chores.find((ch) => ch.id === c.chore)!;
-        if (def.at === 'rockPile') {
-          tx = this.cfg.rockPile.x; tz = this.cfg.rockPile.z; stopAt = this.cfg.rockPile.radius + 1.0; onArrive = 'working';
+      // What should this crew member be doing right now?
+      let stop: Stop | null;
+      const mode = sim.shelterCall ? 'shelter' : c.chore ? 'chore' : 'routine';
+      if (mode === 'shelter') stop = this.stopFor(sim, 'shelter', i, m);
+      else if (mode === 'chore') stop = this.stopFor(sim, CHORE_STOP[c.chore!], i, m);
+      else {
+        stop = this.stopFor(sim, ROUTINE[m.routineIndex], i, m);
+        if (!stop) { m.routineIndex = (m.routineIndex + 1) % ROUTINE.length; stop = this.stopFor(sim, 'workshop', i, m); }
+      }
+      const key = stop ? `${mode}:${stop.key}` : `${mode}:none`;
+      if (key !== m.goalKey) {
+        m.goalKey = key; m.stop = stop; m.arrived = false; m.dwell = 0;
+        m.path = stop ? this.route(m, stop) : [];
+      }
+
+      // Stop and wave when the player walks up, unless there is a storm or a chore to do.
+      const dPlayer = Math.hypot(px - m.x, pz - m.z);
+      if (mode === 'routine' && !sim.storm && dPlayer < 3 && m.greetCooldown <= 0 && m.greet <= 0) { m.greet = 2.6; m.greetCooldown = 18; }
+
+      let moving = false;
+      if (m.greet > 0) {
+        m.greet -= dt;
+        m.facing = Math.atan2(px - m.x, pz - m.z);
+      } else if (m.stop && !m.arrived) {
+        const last = m.path.length === 1;
+        const tgt = m.path[0];
+        const dx = tgt.x - m.x, dz = tgt.z - m.z, d = Math.hypot(dx, dz);
+        if (d <= (last ? m.stop.reach : 0.5)) {
+          if (last) m.arrived = true; else m.path.shift();
         } else {
-          // Prefer a working module, nearest first; fall back to a broken one and wait beside it.
-          let best = null as null | { id: number; x: number; z: number; broken: boolean };
-          let bestScore = Infinity;
-          for (const mod of sim.modules) {
-            if (mod.type !== def.at) continue;
-            const score = Math.hypot(mod.x - m.x, mod.z - m.z) + (mod.broken ? 1000 : 0) + (mod.id === c.moduleId ? -5 : 0);
-            if (score < bestScore) { bestScore = score; best = mod; }
+          moving = true;
+          const speed = SPEED * (mode === 'shelter' ? 1.7 : 1);
+          const ux = dx / d, uz = dz / d;
+          const r = resolve(this.blockers, m.x, m.z, m.x + ux * speed * dt, m.z + uz * speed * dt, 0.5, true);
+          let nx = r.x, nz = r.z;
+          if (r.hit) {
+            // Slide around the obstacle, on the side that leads towards the target.
+            const ox = nx - r.hit.x, oz = nz - r.hit.z, ol = Math.hypot(ox, oz) || 1;
+            let tx = -oz / ol, tz = ox / ol;
+            if (tx * ux + tz * uz < 0) { tx = -tx; tz = -tz; }
+            const s = resolve(this.blockers, nx, nz, nx + tx * speed * dt, nz + tz * speed * dt, 0.5, true);
+            nx = s.x; nz = s.z;
           }
-          if (best) {
-            c.moduleId = best.id;
-            tx = best.x; tz = best.z; stopAt = this.cfg.modules[def.at].radius + 1.0;
-            targetBroken = best.broken;
-            onArrive = targetBroken ? 'waiting' : 'working';
-          } else {
-            onArrive = 'noModule';
-          }
+          if (Math.hypot(nx - m.x, nz - m.z) > 1e-4) m.facing = Math.atan2(nx - m.x, nz - m.z);
+          m.x = nx; m.z = nz;
         }
       }
 
-      const dx = tx - m.x, dz = tz - m.z, d = Math.hypot(dx, dz);
-      if (d > stopAt) {
-        m.phase = 'walking';
-        let nx = m.x + (dx / d) * SPEED * dt, nz = m.z + (dz / d) * SPEED * dt;
-        for (const b of this.blockers) {
-          const bx = nx - b.x, bz = nz - b.z, bd = Math.hypot(bx, bz), min = b.r + 0.6;
-          if (bd < min && bd > 1e-4) {
-            // Slide around the obstacle instead of stopping against it.
-            nx = b.x + (bx / bd) * min - (bz / bd) * SPEED * dt * 0.6;
-            nz = b.z + (bz / bd) * min + (bx / bd) * SPEED * dt * 0.6;
-          }
+      // Keep crew from standing inside each other or the player.
+      for (const o of this.members) {
+        if (o === m) continue;
+        const dx = m.x - o.x, dz = m.z - o.z, d = Math.hypot(dx, dz);
+        if (d < 0.9 && d > 1e-4 && moving) { m.x += (dx / d) * (0.9 - d) * 0.5; m.z += (dz / d) * (0.9 - d) * 0.5; }
+      }
+      if (dPlayer < 0.8 && dPlayer > 1e-4) { m.x += ((m.x - px) / dPlayer) * (0.8 - dPlayer); m.z += ((m.z - pz) / dPlayer) * (0.8 - dPlayer); }
+
+      // Arrival: do the activity, then move on with the routine.
+      const targetBroken = !!m.stop && m.stop.moduleId !== null && !!sim.modules.find((mod) => mod.id === m.stop!.moduleId)?.broken;
+      if (m.greet > 0) m.activity = 'greeting';
+      else if (moving) m.activity = mode === 'shelter' ? 'running' : 'walking';
+      else if (m.arrived && m.stop) {
+        m.activity = mode === 'chore' && targetBroken ? 'waiting' : m.stop.act;
+        if (m.stop.moduleId !== null) m.facing = Math.atan2(m.stop.x - m.x, m.stop.z - m.z);
+        if (mode === 'routine') {
+          m.dwell += dt;
+          if (m.dwell > 8 + i * 1.5) { m.routineIndex = (m.routineIndex + 1) % ROUTINE.length; m.goalKey = ''; }
         }
-        m.facing = Math.atan2(nx - m.x, nz - m.z);
-        m.x = nx; m.z = nz;
-      } else {
-        m.phase = onArrive;
-        if (d > 0.01 && onArrive !== 'idle') m.facing = Math.atan2(dx, dz);
-      }
+      } else m.activity = 'waiting';
 
-      c.working = m.phase === 'working';
-      c.sheltered = m.phase === 'sheltered';
+      c.working = mode === 'chore' && m.arrived && !targetBroken;
+      // Safe only once actually inside the shelter walls.
+      const shelterIdx = this.world.buildings.findIndex((b) => b.type === 'shelter');
+      c.sheltered = sim.shelterCall && shelterIdx >= 0 && this.world.buildingAt(m.x, m.z) === shelterIdx;
 
-      // Animation
-      const g = m.model;
-      g.group.visible = m.phase !== 'sheltered';
-      g.group.position.set(m.x, heightAt(m.x, m.z), m.z);
-      g.group.rotation.y = m.facing;
-      m.anim += dt;
-      if (m.phase === 'walking') {
-        const s = Math.sin(m.anim * 9) * 0.7;
-        g.legL.rotation.x = s; g.legR.rotation.x = -s; g.armL.rotation.x = -s * 0.7; g.armR.rotation.x = s * 0.7;
-        g.group.position.y += Math.abs(Math.sin(m.anim * 9)) * 0.06;
-      } else if (m.phase === 'working') {
-        const s = Math.sin(m.anim * 7);
-        g.legL.rotation.x = 0; g.legR.rotation.x = 0;
-        g.armL.rotation.x = -1.6 + s * 0.5; g.armR.rotation.x = -1.6 - s * 0.5;
-      } else {
-        const s = Math.sin(m.anim * 2) * 0.06;
-        g.legL.rotation.x = 0; g.legR.rotation.x = 0; g.armL.rotation.x = s; g.armR.rotation.x = -s;
-      }
+      this.animate(m, dt, storm);
+      const near = dPlayer < 14;
+      m.tag.set(near ? `${c.name} · ${t(`act_${m.activity}` as TextKey)}` : c.name);
     });
+  }
+
+  private animate(m: Member, dt: number, storm: boolean): void {
+    const g = m.model;
+    m.anim += dt;
+    let y = heightAt(m.x, m.z);
+    let legL = 0, legR = 0, aLx = 0, aRx = 0, aLz = 0, aRz = 0;
+    const s = Math.sin(m.anim * 2) * 0.06;
+    switch (m.activity) {
+      case 'walking': case 'running': {
+        const k = m.activity === 'running' ? 13 : 9;
+        const w = Math.sin(m.anim * k) * 0.7;
+        legL = w; legR = -w; aLx = -w * 0.7; aRx = w * 0.7;
+        y += Math.abs(Math.sin(m.anim * k)) * 0.06;
+        break;
+      }
+      case 'watering': aRx = -1.1 + Math.sin(m.anim * 3) * 0.25; aLx = s; break;
+      case 'wiping': aLx = -1.4; aRx = -1.4; aLz = -Math.sin(m.anim * 5) * 0.5; aRz = -Math.sin(m.anim * 5) * 0.5; break;
+      case 'carrying': aLx = -1.15; aRx = -1.15; y += Math.abs(Math.sin(m.anim * 2)) * 0.04; break;
+      case 'tablet': aLx = -0.95; aRx = -0.8 + Math.sin(m.anim * 6) * 0.08; break;
+      case 'break': case 'sheltering': legL = -1.5; legR = -1.5; y -= 0.4; aLx = -0.4 + s; aRx = -0.4 - s; break;
+      case 'greeting': aRz = 2.5 + Math.sin(m.anim * 9) * 0.35; aLx = s; break;
+      default: aLx = s; aRx = -s; if (storm) aLx = -2.6;
+    }
+    g.legL.rotation.x = legL; g.legR.rotation.x = legR;
+    g.armL.rotation.set(aLx, 0, aLz); g.armR.rotation.set(aRx, 0, aRz);
+    m.crate.visible = m.activity === 'carrying';
+    g.group.position.set(m.x, y, m.z);
+    g.group.rotation.y = m.facing;
   }
 }

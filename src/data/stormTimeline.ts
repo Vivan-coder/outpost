@@ -15,6 +15,9 @@ export interface StormTuning {
   windowStart: number; // game second the first flare is detected
   windowEnd: number; // game second the last proton event begins
   minWarning: number; // shortest warning the game allows, so a child can still react
+  maxWarning: number; // longest warning, so the countdown stays readable
+  minDuration: number;
+  maxDuration: number;
   secondsPerFlareMinute: number; // storm length in game seconds per minute of flare (records have no proton end time)
   peakRadiation: number; // dose per second for the strongest flare in the event
   solarFactor: number;
@@ -52,12 +55,12 @@ export function buildStorms(ev: SolarEvent, tn: StormTuning): StormDef[] {
 
   return chains.map(({ sep, flare, cme }) => {
     const startAt = round1(toGame(ms(sep.eventTime)));
-    const warnAt = round1(Math.min(toGame(ms(flare.beginTime)), startAt - tn.minWarning));
+    const warnAt = round1(Math.max(startAt - tn.maxWarning, Math.min(toGame(ms(flare.beginTime)), startAt - tn.minWarning)));
     const flareMinutes = (ms(flare.endTime) - ms(flare.beginTime)) / 60000;
     return {
       warnAt,
       startAt,
-      duration: Math.round(flareMinutes * tn.secondsPerFlareMinute),
+      duration: Math.max(tn.minDuration, Math.min(tn.maxDuration, Math.round(flareMinutes * tn.secondsPerFlareMinute))),
       radiation: round1(tn.peakRadiation * (flareFlux(flare.classType) / maxFlux)),
       solarFactor: tn.solarFactor,
       surgeBreaks: tn.surgeBreaks,

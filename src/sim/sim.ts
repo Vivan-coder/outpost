@@ -1,8 +1,10 @@
 // Pure simulation: no three.js, no DOM, no imports. Advanced only by step() on a fixed tick.
 
-export type ModuleType = 'habitat' | 'solar' | 'battery' | 'lifeSupport' | 'tank' | 'greenhouse';
+export type ModuleType = 'habitat' | 'shelter' | 'solar' | 'battery' | 'lifeSupport' | 'tank' | 'greenhouse';
 export type ChoreId = 'tomatoes' | 'panels' | 'rocks' | 'filters';
 export type FailCause = 'air' | 'food' | 'radiation';
+export type JobKind = 'clean' | 'water' | 'refill';
+export interface SimJob { id: number; kind: JobKind; moduleId: number }
 
 export interface ModuleDef {
   cost: number; // parts; 0 = not buildable
@@ -55,6 +57,11 @@ export interface LevelConfig {
   foodPerPerson: number;
   basePowerDraw: number;
   baselineRadiation: number; // dose per second outside on a quiet day
+  playerDoseWeight: number; // share of the team dose that is the player's own suit
+  choreDuration: number; // seconds of work before a crew member goes back to their routine
+  jobEvery: number; // seconds between new hands-on jobs for the player
+  maxJobs: number;
+  jobRewards: Record<JobKind, { power: number; air: number; food: number }>;
   buildRadius: number;
   wearAfter: number; // no random breakdowns before this time
   wearPerSecond: number; // chance per module per second
@@ -72,8 +79,8 @@ export interface SimCrew {
   name: string;
   chore: ChoreId | null;
   working: boolean; // set by the game layer once the crew member is at the work spot
-  sheltered: boolean; // set by the game layer once inside the habitat
-  moduleId: number | null; // module the chore is being done at
+  sheltered: boolean; // set by the game layer once inside the shelter
+  choreLeft: number; // seconds of work left on the current chore
 }
 
 export type SimEvent =
@@ -83,6 +90,8 @@ export type SimEvent =
   | { type: 'stormEnd'; index: number }
   | { type: 'meteor' }
   | { type: 'part' }
+  | { type: 'job'; id: number }
+  | { type: 'choreDone'; crew: number; chore: ChoreId }
   | { type: 'end' };
 
 export interface SimState {
@@ -95,13 +104,15 @@ export interface SimState {
   modules: SimModule[];
   crew: SimCrew[];
   shelterCall: boolean;
-  playerSheltered: boolean;
+  playerExposure: number; // 1 outside, 0 inside the shelter, in between for thin walls
+  jobs: SimJob[];
+  nextJobAt: number;
   storm: { index: number; phase: 'warning' | 'active' } | null;
   stormIndex: number;
   eventIndex: number;
   status: 'running' | 'won' | 'lost';
   failCause: FailCause | null;
-  stats: { lifeSupportDownS: number; greenhouseDownS: number; powerOutS: number; exposedS: number; fixes: number; builds: number };
+  stats: { lifeSupportDownS: number; greenhouseDownS: number; powerOutS: number; exposedS: number; fixes: number; builds: number; jobs: number };
   history: number[][]; // [time, power%, air%, food%, radiation]
   outbox: SimEvent[];
   nextId: number;
@@ -116,11 +127,11 @@ export function createSim(cfg: LevelConfig): SimState {
     power: cfg.start.power, air: cfg.start.air, food: cfg.start.food, parts: cfg.start.parts,
     radiation: 0,
     modules: [],
-    crew: cfg.crewNames.map((name) => ({ name, chore: null, working: false, sheltered: false, moduleId: null })),
-    shelterCall: false, playerSheltered: false,
+    crew: cfg.crewNames.map((name) => ({ name, chore: null, working: false, sheltered: false, choreLeft: 0 })),
+    shelterCall: false, playerExposure: 1, jobs: [], nextJobAt: cfg.jobEvery,
     storm: null, stormIndex: 0, eventIndex: 0,
     status: 'running', failCause: null,
-    stats: { lifeSupportDownS: 0, greenhouseDownS: 0, powerOutS: 0, exposedS: 0, fixes: 0, builds: 0 },
+    stats: { lifeSupportDownS: 0, greenhouseDownS: 0, powerOutS: 0, exposedS: 0, fixes: 0, builds: 0, jobs: 0 },
     history: [], outbox: [], nextId: 1, rng: cfg.seed >>> 0, rockProgress: 0, sampleAt: 0,
   };
   for (const m of cfg.startModules) s.modules.push({ id: s.nextId++, type: m.type, x: m.x, z: m.z, broken: false });
@@ -170,10 +181,23 @@ export function fix(s: SimState, id: number): boolean {
   return true;
 }
 
+export function completeJob(s: SimState, cfg: LevelConfig, jobId: number): boolean {
+  const i = s.jobs.findIndex((j) => j.id === jobId);
+  if (i < 0) return false;
+  const r = cfg.jobRewards[s.jobs[i].kind];
+  const cap = caps(s, cfg);
+  s.power = Math.min(cap.power, s.power + r.power);
+  s.air = Math.min(cap.air, s.air + r.air);
+  s.food = Math.min(cap.food, s.food + r.food);
+  s.jobs.splice(i, 1);
+  s.stats.jobs++;
+  return true;
+}
+
 export function assign(s: SimState, crewIndex: number, chore: ChoreId | null): void {
   const c = s.crew[crewIndex];
   if (!c) return;
-  c.chore = chore; c.working = false; c.moduleId = null;
+  c.chore = chore; c.working = false; c.choreLeft = chore ? Infinity : 0;
 }
 
 export function setShelter(s: SimState, on: boolean): void {
@@ -189,8 +213,8 @@ function breakModule(s: SimState, m: SimModule, reason: 'failure' | 'meteor' | '
 
 function breakRandom(s: SimState, count: number, reason: 'meteor' | 'surge', prefer?: ModuleType): void {
   for (let i = 0; i < count; i++) {
-    let pool = s.modules.filter((m) => !m.broken && m.type !== 'habitat' && (!prefer || m.type === prefer));
-    if (pool.length === 0) pool = s.modules.filter((m) => !m.broken && m.type !== 'habitat');
+    let pool = s.modules.filter((m) => !m.broken && m.type !== 'habitat' && m.type !== 'shelter' && (!prefer || m.type === prefer));
+    if (pool.length === 0) pool = s.modules.filter((m) => !m.broken && m.type !== 'habitat' && m.type !== 'shelter');
     if (pool.length === 0) return;
     breakModule(s, pool[Math.floor(rand(s) * pool.length)], reason);
   }
@@ -209,10 +233,12 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
     const d = cfg.storms[s.storm.index];
     if (s.storm.phase === 'warning' && s.time >= d.startAt) {
       s.storm.phase = 'active';
+      s.shelterCall = true; // anyone still outside runs for the shelter
       s.outbox.push({ type: 'stormStart', index: s.storm.index });
     } else if (s.storm.phase === 'active' && s.time >= d.startAt + d.duration) {
       breakRandom(s, d.surgeBreaks, 'surge', 'solar');
       s.outbox.push({ type: 'stormEnd', index: s.storm.index });
+      setShelter(s, false); // all clear
       s.storm = null;
       s.stormIndex++;
     }
@@ -231,9 +257,10 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
   }
 
   // Random wear, capped so the player is never swamped
-  if (s.time > cfg.wearAfter && s.modules.filter((m) => m.broken).length < 2) {
+  const fixed = (m: SimModule) => m.type === 'habitat' || m.type === 'shelter';
+  if (s.time > cfg.wearAfter && !s.storm && s.modules.filter((m) => m.broken).length < 2) {
     for (const m of s.modules) {
-      if (m.type !== 'habitat' && !m.broken && rand(s) < cfg.wearPerSecond * dt) { breakModule(s, m, 'wear'); break; }
+      if (!fixed(m) && !m.broken && rand(s) < cfg.wearPerSecond * dt) { breakModule(s, m, 'wear'); break; }
     }
   }
 
@@ -253,17 +280,36 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
     if (m.type === 'greenhouse') greenhouseUp = true;
   }
 
-  // Crew chores
-  for (const c of s.crew) {
-    if (!c.chore || !c.working || c.sheltered) continue;
+  // New hands-on jobs for the player
+  if (s.time >= s.nextJobAt) {
+    s.nextJobAt += cfg.jobEvery;
+    const kindOf: Partial<Record<ModuleType, JobKind>> = { solar: 'clean', greenhouse: 'water', lifeSupport: 'refill' };
+    const pool = s.modules.filter((m) => kindOf[m.type] && !m.broken && !s.jobs.some((j) => j.moduleId === m.id));
+    if (!s.storm && s.jobs.length < cfg.maxJobs && pool.length > 0) {
+      const m = pool[Math.floor(rand(s) * pool.length)];
+      const job: SimJob = { id: s.nextId++, kind: kindOf[m.type]!, moduleId: m.id };
+      s.jobs.push(job);
+      s.outbox.push({ type: 'job', id: job.id });
+    }
+  }
+
+  // Crew chores: they pay out while the crew member is at the work spot, for a fixed stretch of work
+  s.crew.forEach((c, crewIndex) => {
+    if (!c.chore || !c.working || c.sheltered) return;
     const def = cfg.chores.find((ch) => ch.id === c.chore)!;
+    if (c.choreLeft === Infinity) c.choreLeft = cfg.choreDuration;
+    c.choreLeft -= dt;
     dPower += def.power * (def.id === 'panels' ? solarFactor : 1);
     dAir += def.air; dFood += def.food;
     if (def.partsEvery > 0) {
       s.rockProgress += dt / def.partsEvery;
       if (s.rockProgress >= 1) { s.rockProgress -= 1; s.parts++; s.outbox.push({ type: 'part' }); }
     }
-  }
+    if (c.choreLeft <= 0) {
+      s.outbox.push({ type: 'choreDone', crew: crewIndex, chore: c.chore });
+      c.chore = null; c.working = false; c.choreLeft = 0;
+    }
+  });
 
   const people = 1 + s.crew.length;
   dAir -= cfg.airPerPerson * people;
@@ -279,8 +325,8 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
   if (s.power <= 0) s.stats.powerOutS += dt;
 
   // Radiation reaches people who are outside: a tiny everyday dose, and a large one during a storm
-  const outside = (s.playerSheltered ? 0 : 1) + s.crew.filter((c) => !c.sheltered).length;
-  const share = outside / people;
+  const crewOutside = s.crew.length ? s.crew.filter((c) => !c.sheltered).length / s.crew.length : 0;
+  const share = cfg.playerDoseWeight * s.playerExposure + (1 - cfg.playerDoseWeight) * crewOutside;
   const rate = cfg.baselineRadiation + (stormActive ? cfg.storms[s.storm!.index].radiation : 0);
   s.radiation = Math.min(100, s.radiation + rate * share * dt);
   if (stormActive) s.stats.exposedS += share * dt;
