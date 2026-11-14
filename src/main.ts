@@ -6,7 +6,9 @@ import { Player, type Blocker } from './game/player';
 import { World, type BuildingView } from './game/world';
 import { Crew } from './game/crew';
 import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
-import { assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
+import { WorkSession, type WorkEnv } from './game/work';
+import type { WorkKind } from './data/workTasks';
+import { harvestPlant, HARVEST_FOOD, assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
 import { STATION, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi, factText } from './ui/ui';
@@ -73,7 +75,7 @@ const input = createInput(canvas);
 const player = new Player(camera, blockers);
 const runner = new TaskRunner();
 const keys = new Set<string>();
-if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz } });
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
 
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }
@@ -138,7 +140,87 @@ const ui = createUi(level, {
   callShelter() { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
   toggleLanguage: switchLanguage,
   restart: () => location.reload(),
+  tool: (i) => { work?.selectIndex(i); },
+  leaveWork: () => leaveWork(),
 });
+
+// ---- Work mode: close-up hands-on tasks ----
+let work: WorkSession | null = null;
+let workTarget: TaskTarget | null = null;
+let workDoneAt = 0;
+const sessions = new Map<string, WorkSession>();
+const lastNdc = new THREE.Vector2();
+const lookCur = new THREE.Vector3();
+const workEnv: WorkEnv = {
+  plants: sim.plants,
+  lampOn: () => sim.lampOn,
+  setLamp: (on) => { sim.lampOn = on; },
+  harvest: (i) => { if (harvestPlant(sim, level, i)) { ui.toast(t('ws_harvested', { n: HARVEST_FOOD }), 'good'); ui.popup(`+${HARVEST_FOOD} 🌱`); } },
+  dust: () => sim.dust,
+};
+const workFx = { click: () => sfx.click(), ok: () => sfx.part(), wrong: () => sfx.broke(), done: () => sfx.fix() };
+const workKindOf = (tg: TaskTarget): WorkKind | null => (tg.kind === 'repair' ? 'repair' : tg.kind === 'solar' ? 'solar' : tg.kind === 'water' ? 'water' : tg.kind === 'greenhouse' ? 'greenhouse' : null);
+
+function startWork(kind: WorkKind, tg: TaskTarget): void {
+  if (work) scene.remove(work.group);
+  const key = `${kind}:${tg.moduleId}`;
+  let ses = sessions.get(key);
+  if (!ses) { ses = new WorkSession(kind, workEnv, workFx); sessions.set(key, ses); }
+  work = ses; workTarget = tg; workDoneAt = 0;
+  world.markersHidden = true;
+  scene.add(ses.group);
+  input.enabled = false;
+  unlockPointer();
+  lookCur.set(0, 0, 0).copy(camera.position);
+  sfx.click();
+}
+
+// Leaving keeps the session, so the steps already done stay done when you come back.
+function leaveWork(): void {
+  if (!work) return;
+  scene.remove(work.group);
+  work = null; workTarget = null;
+  world.markersHidden = false;
+  input.enabled = true;
+  camera.fov = 70; camera.updateProjectionMatrix();
+  ui.setWork(null, isTouch());
+}
+
+function finishWork(): void {
+  const tg = workTarget, ses = work;
+  if (!tg || !ses) return;
+  sessions.delete(`${ses.kind}:${tg.moduleId}`);
+  scene.remove(ses.group);
+  work = null; workTarget = null;
+  world.markersHidden = false;
+  input.enabled = true;
+  camera.fov = 70; camera.updateProjectionMatrix();
+  ui.setWork(null, isTouch());
+  finishTask(tg, 'done');
+  const why = tg.kind === 'solar' ? 'dustPanels' : tg.kind === 'water' ? 'water90' : null;
+  if (why) { const f = factText(why); if (f) ui.toast(`${t('whyTitle')}: ${f}`, 'bot'); }
+  ui.toast(t('ws_simplified'));
+}
+
+function workFrame(dt: number): void {
+  if (!work) return;
+  work.update(dt);
+  const eye = new THREE.Vector3(player.pos.x, player.pos.y + 1.7, player.pos.z);
+  const fov = 52;
+  const f = work.frame(eye, player.yaw, fov, camera.aspect);
+  const k = 1 - Math.exp(-9 * dt);
+  camera.position.lerp(f.pos, k);
+  lookCur.lerp(f.look, k);
+  camera.lookAt(f.look);
+  camera.fov += (fov - camera.fov) * k; camera.updateProjectionMatrix();
+  ui.setWork(work.view(), isTouch());
+  if (work.done) { workDoneAt += dt; if (workDoneAt > 0.9) finishWork(); }
+}
+
+const ndcOf = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); lastNdc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); return lastNdc; };
+canvas.addEventListener('pointermove', (e) => { if (work) work.pointerMove(ndcOf(e), camera); });
+canvas.addEventListener('pointerdown', (e) => { if (work) { e.preventDefault(); work.pointerDown(ndcOf(e), camera); } });
+addEventListener('pointerup', () => { work?.pointerUp(); });
 
 const activities = () => crew.members.map((m) => m.activity);
 const openBuild = () => { unlockPointer(); placing = null; sfx.click(); ui.openBuild(sim); };
@@ -232,6 +314,12 @@ function seqPress(n: number): void {
 addEventListener('keydown', (e) => {
   unlockAudio();
   if (e.code === 'Tab') e.preventDefault();
+  if (work && !ui.blocking()) {
+    if (e.code === 'Escape') { leaveWork(); return; }
+    if (/^Digit[1-8]$/.test(e.code)) { work.selectIndex(Number(e.code.slice(5)) - 1); return; }
+    if (e.code === 'KeyE' && !e.repeat) work.pointerDown(lastNdc, camera);
+    return;
+  }
   if (ui.blocking()) {
     // Same key that opened a menu closes it again.
     const kind = ui.menuOpen();
@@ -257,7 +345,7 @@ addEventListener('keydown', (e) => {
       break;
   }
 });
-addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('keyup', (e) => { keys.delete(e.code); if (e.code === 'KeyE') work?.pointerUp(); });
 byId('btnFF').addEventListener('click', () => toggleFF());
 byId('btnSkip').addEventListener('click', () => skipAhead());
 addEventListener('blur', () => keys.clear());
@@ -265,7 +353,7 @@ addEventListener('blur', () => keys.clear());
 let wasLocked = false;
 document.addEventListener('pointerlockchange', () => {
   const locked = !!document.pointerLockElement;
-  if (!locked && wasLocked && !ui.blocking() && !placing && sim.status === 'running') openPause();
+  if (!locked && wasLocked && !ui.blocking() && !placing && !work && sim.status === 'running') openPause();
   wasLocked = locked;
 });
 // Desktop: with the mouse captured, a click places the module.
@@ -319,6 +407,7 @@ function handleEvents(): void {
       case 'stormStart': {
         sfx.alarm();
         bot('botImpact');
+        if (work && sim.playerExposure > 0) { leaveWork(); ui.toast(t('taskStorm'), 'bad'); }
         queueTalk(stormLines(level.storms[e.index], Math.max(...solarEvent.gsts.map((g) => g.maxKp)), factText), 6, 6.5);
         if (sim.playerExposure > 0) {
           const tg = runner.target;
@@ -497,7 +586,7 @@ renderer.setAnimationLoop((now) => {
     clock += dt;
     const inp = rep === 0 ? input.state : { ...input.state, lookDX: 0, lookDY: 0, jump: false };
     const lookDX = inp.lookDX;
-    player.update(dt, inp, keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    if (!work) player.update(dt, inp, keys.has('ShiftLeft') || keys.has('ShiftRight'));
     const px = player.pos.x, pz = player.pos.z;
 
     // Only the shelter stops the radiation; the station's thin walls stop half.
@@ -524,7 +613,8 @@ renderer.setAnimationLoop((now) => {
     world.setGhost(placing, placeX, placeZ, placeOk);
     ui.setPlacing(!!placing, placeOk);
 
-    // Interaction: aim, hold, then the mini-step.
+    // Interaction: aim, hold, then the mini-step or the close-up work mode.
+    if (work) { workFrame(dt); } else {
     if (runner.stage !== 'mini') target = placing ? null : pickTarget();
     const holding = keys.has('KeyE') || ui.actHeld();
     const tg = runner.target;
@@ -533,9 +623,14 @@ renderer.setAnimationLoop((now) => {
     if (result && tg) finishTask(tg, result);
     if (runner.stage === 'hold' && holding) { holdTick -= dt; if (holdTick <= 0) { holdTick = 0.22; sfx.click(); } }
     ui.setRing(runner.stage === 'hold' ? runner.hold : 0);
+    if (runner.stage === 'mini' && runner.target) {
+      const wk = workKindOf(runner.target);
+      if (wk) { const tgt = runner.target; runner.cancel('moved'); startWork(wk, tgt); }
+    }
     ui.renderTask(runner, isTouch());
     updatePrompt();
     updateMarks();
+    }
 
     // Storm: siren during the warning, clicks from the radiation counter when exposed, and a red sky.
     if (sim.storm?.phase === 'warning' && clock >= sirenAt) { sirenAt = clock + 12; sfx.alarm(); }

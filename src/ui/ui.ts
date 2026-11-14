@@ -5,6 +5,8 @@ import { apollo, FULL_METER_REM } from '../data/apollo.ts';
 import meta from '../data/solar-event.meta.json' with { type: 'json' };
 import { t, type TextKey } from '../i18n/en';
 import { GAUGE_ZONE, type TaskRunner } from '../game/tasks';
+import { TOOLS, type Tool } from '../data/workTasks';
+import type { WorkView } from '../game/work';
 
 export interface UiHandlers {
   pickBuild(type: ModuleType): void;
@@ -14,6 +16,8 @@ export interface UiHandlers {
   seqPress(n: number): void;
   assign(crewIndex: number, task: TaskId | null): void;
   upgrade(key: UpgradeKey): void;
+  tool(i: number): void;
+  leaveWork(): void;
   callShelter(): void;
   toggleLanguage(): void;
   restart(): void;
@@ -89,7 +93,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = null as string | null, lastPrompt = '', lastTask = '', lastGoals = '';
   let menuKind: 'build' | 'crew' | 'pause' | 'upgrade' | 'quiz' | null = null;
   let subTimer = 0;
-  let goalsOpen = false, lastSim: SimState | null = null;
+  let goalsOpen = false, lastSim: SimState | null = null, workSig = '';
   const marks = new Map<string, HTMLElement>();
   let actHeld = false;
 
@@ -97,6 +101,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   press('placeBtn', () => h.place());
   press('cancelBtn', () => h.cancelPlace());
   press('shelterBtn', () => h.callShelter());
+  $('workBack').addEventListener('click', () => h.leaveWork());
 
   // Action button: hold for tasks, so it tracks pointer down and up rather than clicks.
   actBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); actHeld = true; actBtn.classList.add('held'); h.actDown(); });
@@ -164,6 +169,47 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         return true;
       }
       return false;
+    },
+
+    // Work mode panel: step hint, progress, gauge, meter and the tool hotbar.
+    setWork(v: WorkView | null, touch: boolean): void {
+      document.body.classList.toggle('working', !!v);
+      if (!v) { workSig = ''; return; }
+      if (workSig === '') {
+        $('workBack').textContent = t('ws_leave');
+        const bar = $('hotbar');
+        bar.replaceChildren();
+        TOOLS.forEach((tl, i) => {
+          const b = el('button', '', tl.icon);
+          b.dataset.tool = tl.id; b.title = t(`tool_${tl.id}` as TextKey);
+          b.append(el('small', '', String(i + 1)));
+          b.addEventListener('pointerdown', (e) => { e.preventDefault(); h.tool(i); });
+          bar.appendChild(b);
+        });
+        ($('workGauge').querySelector('.zone') as HTMLElement).style.cssText += `left:${GAUGE_ZONE[0] * 100}%;width:${(GAUGE_ZONE[1] - GAUGE_ZONE[0]) * 100}%`;
+        $('workMeterLabel').textContent = t('ws_power');
+        workSig = 'on';
+      }
+      const kind = v.kind === 'repair' ? t('taskTitle_repair') : t(`task_${v.kind === 'solar' ? 'solar' : v.kind === 'water' ? 'water' : 'greenhouse'}` as TextKey);
+      $('workTitle').textContent = kind;
+      $('workStep').textContent = t('ws_step', { n: v.stepNo, m: v.stepTotal });
+      const toolName = v.needTool ? t(`tool_${v.needTool}` as TextKey) : '';
+      const key = v.needTool ? TOOLS.findIndex((x) => x.id === v.needTool) + 1 : 0;
+      const hint = v.note ? t(v.note, { tool: toolName }) : t(v.hintKey, { n: v.n, m: v.m, p: v.pct, tool: toolName, key });
+      $('workHint').innerHTML = keycaps(touch ? hint.replace(/\[[^\]]+\]/g, '').replace(/\s{2,}/g, ' ') : hint);
+      $('workHint').classList.toggle('warn', !!v.note);
+      $('workBar').style.width = `${Math.round(v.progress * 100)}%`;
+      const g = $('workGauge');
+      g.style.display = v.gauge === null ? 'none' : 'block';
+      if (v.gauge !== null) (g.querySelector('.needle') as HTMLElement).style.left = `${v.gauge * 100}%`;
+      const mt = $('workMeter');
+      mt.style.display = v.meter === null ? 'none' : 'block';
+      if (v.meter !== null) $('workMeterFill').style.width = `${Math.round(v.meter * 100)}%`;
+      $('hotbar').querySelectorAll('button').forEach((b) => {
+        const id = b.dataset.tool as Tool;
+        b.classList.toggle('on', v.tool === id);
+        b.classList.toggle('need', v.needTool === id && v.tool !== id);
+      });
     },
 
     toggleGoals(): void { goalsOpen = !goalsOpen; lastGoals = ''; if (lastSim) ui.update(lastSim, 0, 0, true); },

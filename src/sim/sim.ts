@@ -82,6 +82,12 @@ export interface LevelConfig {
   events: TimedEvent[];
 }
 
+// Plants in the greenhouse grow through visible stages: 0 empty, 1 seed, 2 sprout, 3 leafy, 4 ripe.
+// The crops are a game choice (lettuce and tomato), not a claim about what the station grows.
+export interface Plant { stage: 0 | 1 | 2 | 3 | 4; growth: number; water: number; kind: 'lettuce' | 'tomato' }
+export const PLANT_AT = [0, 20, 55, 100]; // growth seconds needed to reach stage 2, 3 and 4 (tomato takes 1.5x longer)
+export const HARVEST_FOOD = 4;
+
 export interface SimModule { id: number; type: ModuleType; x: number; z: number; broken: boolean; brokenFor: number }
 export interface SimJob { id: number; task: TaskId; moduleId: number | null }
 
@@ -122,6 +128,9 @@ export interface SimState {
   jobs: SimJob[];
   nextJobAt: number;
   levels: Record<UpgradeKey, number>;
+  dust: number; // 0..1 dust on the solar panels: cuts their output until someone cleans them
+  lampOn: boolean; // greenhouse grow lamp
+  plants: Plant[];
   storm: { index: number; phase: 'warning' | 'active' } | null;
   stormIndex: number;
   eventIndex: number;
@@ -146,6 +155,8 @@ export function createSim(cfg: LevelConfig): SimState {
     modules: [],
     crew: cfg.crewNames.map((name) => ({ name, chore: null, working: false, sheltered: false, choreLeft: 0 })),
     shelterCall: false, playerExposure: 1, jobs: [], nextJobAt: 0,
+    dust: 0.1, lampOn: true,
+    plants: [{ stage: 2, growth: 30, water: 0.6, kind: 'lettuce' }, { stage: 0, growth: 0, water: 0, kind: 'tomato' }, { stage: 0, growth: 0, water: 0, kind: 'lettuce' }],
     levels: { solar: 1, lifeSupport: 1, greenhouse: 1, battery: 1, tank: 1, station: 1, engineering: 1 },
     storm: null, stormIndex: 0, eventIndex: 0,
     status: 'running', failCause: null,
@@ -225,10 +236,34 @@ function applyReward(s: SimState, cfg: LevelConfig, r: Reward, k: number): void 
   s.research += Math.round((r.research ?? 0) * k);
 }
 
+// Something in the greenhouse needs the player: an empty pot, a thirsty plant, a ripe one or a dead lamp.
+export function needsGreenhouse(s: SimState): boolean {
+  return !s.lampOn || s.plants.some((p) => p.stage === 0 || p.stage === 4 || (p.stage > 0 && p.water < 0.35));
+}
+
+export function harvestPlant(s: SimState, cfg: LevelConfig, i: number): boolean {
+  const p = s.plants[i];
+  if (!p || p.stage !== 4) return false;
+  s.food = Math.min(caps(s, cfg).food, s.food + HARVEST_FOOD);
+  s.research += 1;
+  p.stage = 0; p.growth = 0; p.water = 0;
+  return true;
+}
+
+// A crew member tending the greenhouse: lamp on, water everything, harvest ripe plants, plant empty pots.
+export function tendGreenhouse(s: SimState, cfg: LevelConfig): void {
+  s.lampOn = true;
+  s.plants.forEach((p, i) => {
+    if (p.stage === 4) harvestPlant(s, cfg, i);
+    if (p.stage === 0) { p.stage = 1; p.growth = 0; p.water = 0.9; } else p.water = Math.min(1, p.water + 0.6);
+  });
+}
+
 export function completeJob(s: SimState, cfg: LevelConfig, jobId: number): boolean {
   const i = s.jobs.findIndex((j) => j.id === jobId);
   if (i < 0) return false;
   applyReward(s, cfg, taskDef(cfg, s.jobs[i].task).reward, 1);
+  if (s.jobs[i].task === 'solar') s.dust = 0;
   s.jobs.splice(i, 1);
   s.stats.jobs++;
   return true;
@@ -358,6 +393,7 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
   if (s.time >= s.nextJobAt) {
     s.nextJobAt = s.time + cfg.jobGap[0] + rand(s) * (cfg.jobGap[1] - cfg.jobGap[0]);
     const pool = cfg.tasks.filter((t) => t.player && t.at !== 'rockPile'
+      && (t.id !== 'solar' || s.dust > 0.25) && (t.id !== 'greenhouse' || needsGreenhouse(s))
       && s.modules.some((m) => m.type === t.at && !m.broken) && !s.jobs.some((j) => j.task === t.id));
     if (!s.storm && s.jobs.length < cfg.maxJobs && pool.length > 0) {
       const def = pool[Math.floor(rand(s) * pool.length)];
@@ -368,6 +404,20 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
     }
   }
 
+  // Dust settles on the panels; plants grow when the greenhouse has power, a working lamp and water
+  s.dust = Math.min(1, s.dust + 0.0012 * dt);
+  const gh = s.modules.some((m) => m.type === 'greenhouse' && !m.broken);
+  if (gh && s.lampOn && s.power > 0) {
+    for (const p of s.plants) {
+      if (p.stage < 1 || p.stage > 3) continue;
+      p.water = Math.max(0, p.water - 0.004 * dt);
+      if (p.water < 0.12) continue; // thirsty plants stop growing
+      p.growth += dt / (p.kind === 'tomato' ? 1.5 : 1);
+      p.stage = (p.growth >= PLANT_AT[3] ? 4 : p.growth >= PLANT_AT[2] ? 3 : p.growth >= PLANT_AT[1] ? 2 : 1) as Plant['stage'];
+    }
+  }
+  if (s.lampOn && s.time > cfg.wearAfter && !s.storm && rand(s) < 0.0006 * dt) s.lampOn = false;
+
   // Production
   const stormActive = s.storm?.phase === 'active';
   const solarFactor = stormActive ? cfg.storms[s.storm!.index].solarFactor : 1;
@@ -377,7 +427,7 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
   for (const m of s.modules) {
     if (m.broken) continue;
     const def = cfg.modules[m.type];
-    if (m.type === 'solar') { dPower += def.power * upgradeValue(s, cfg, 'solar') * solarFactor; continue; }
+    if (m.type === 'solar') { dPower += def.power * upgradeValue(s, cfg, 'solar') * solarFactor * (1 - 0.4 * s.dust); continue; }
     if (def.power < 0 && !hasPower) continue; // powered modules stop when the batteries are empty
     dPower += def.power;
     if (m.type === 'lifeSupport') { dAir += def.air * upgradeValue(s, cfg, 'lifeSupport'); lifeSupportUp = true; }
@@ -393,6 +443,8 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
     if (c.choreLeft > 0) return;
     const def = taskDef(cfg, c.chore);
     applyReward(s, cfg, def.reward, cfg.crewRewardShare);
+    if (def.id === 'solar') s.dust = 0;
+    if (def.id === 'greenhouse') tendGreenhouse(s, cfg);
     s.stats.crewTasks++;
     s.outbox.push({ type: 'choreDone', crew: crewIndex, task: def.id });
     c.chore = null; c.working = false; c.choreLeft = 0;

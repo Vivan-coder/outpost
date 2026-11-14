@@ -8,7 +8,7 @@ export interface InputState {
   isTouch: boolean;
 }
 
-export function createInput(canvas: HTMLCanvasElement): { state: InputState; consume(): void } {
+export function createInput(canvas: HTMLCanvasElement): { state: InputState; consume(): void; enabled: boolean } {
   const state: InputState = { moveX: 0, moveY: 0, lookDX: 0, lookDY: 0, jump: false, isTouch: false };
   const keys = new Set<string>();
 
@@ -20,7 +20,8 @@ export function createInput(canvas: HTMLCanvasElement): { state: InputState; con
   addEventListener('keyup', (e) => { keys.delete(e.code); syncKeys(); });
   addEventListener('blur', () => { keys.clear(); syncKeys(); });
 
-  canvas.addEventListener('click', () => { if (!state.isTouch) canvas.requestPointerLock?.(); });
+  const api = { state, enabled: true, consume() { state.lookDX = 0; state.lookDY = 0; state.jump = false; } };
+  canvas.addEventListener('click', () => { if (api.enabled && !state.isTouch) canvas.requestPointerLock?.(); });
   addEventListener('mousemove', (e) => {
     if (document.pointerLockElement !== canvas) return;
     state.lookDX -= e.movementX * 0.0022;
@@ -37,6 +38,7 @@ export function createInput(canvas: HTMLCanvasElement): { state: InputState; con
   const markTouch = () => { if (!state.isTouch) { state.isTouch = true; document.body.classList.add('touch'); } };
 
   canvas.addEventListener('touchstart', (e) => {
+    if (!api.enabled) return;
     e.preventDefault(); markTouch();
     for (const t of Array.from(e.changedTouches)) {
       if (t.clientX < innerWidth / 2 && moveId < 0) {
@@ -76,5 +78,5 @@ export function createInput(canvas: HTMLCanvasElement): { state: InputState; con
   canvas.addEventListener('touchcancel', end);
   jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); markTouch(); state.jump = true; }, { passive: false });
 
-  return { state, consume() { state.lookDX = 0; state.lookDY = 0; state.jump = false; } };
+  return api;
 }

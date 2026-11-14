@@ -30,6 +30,22 @@
     .mark { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; margin: -14px 0 0 -40px; width: 80px; --c: #fff; }
     .mark i { font-style: normal; color: var(--c); font-size: 18px; line-height: 18px; text-shadow: 0 0 6px #000; }
     .mark span { font-size: 10px; font-weight: 800; color: #fff; background: #000a; border: 1px solid var(--c); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+    #work { position: fixed; inset: 0; display: none; pointer-events: none; }
+    body.working #work { display: block; } body.working #hud, body.working #left, body.working #buttons, body.working #hint, body.working #banner, body.working #marks, body.working #cross, body.working #dot, body.working #prompt, body.working #shelterBtn, body.working #toasts { display: none !important; }
+    #workTop { position: absolute; top: var(--st); left: 50%; transform: translateX(-50%); width: min(92vw, 560px); display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid #7fb0ff; border-radius: 12px; padding: 8px 12px; pointer-events: auto; box-sizing: border-box; }
+    #workTop b { color: var(--accent); flex: 1; font-size: 14px; } #workTop span { font-size: 12px; opacity: .85; } #workBack { background: #44506a; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; }
+    #workHint { position: absolute; top: calc(var(--st) + 56px); left: 50%; transform: translateX(-50%); width: min(92vw, 560px); background: #0b1220ee; border-radius: 12px; padding: 10px 14px; font-size: 14px; line-height: 1.4; text-align: center; box-sizing: border-box; }
+    #workHint.warn { background: #7a1010ee; }
+    #work .bar { height: 8px; border-radius: 4px; background: #ffffff22; overflow: hidden; } #work .bar i { display: block; height: 100%; width: 0; background: var(--good); }
+    #work > .bar { position: absolute; top: calc(var(--st) + 122px); left: 50%; transform: translateX(-50%); width: min(92vw, 560px); }
+    #workGauge { position: absolute; bottom: calc(var(--sb) + 96px); left: 50%; transform: translateX(-50%); width: min(80vw, 360px); height: 26px; border-radius: 8px; background: #ffffff22; display: none; overflow: hidden; }
+    #workGauge .zone { position: absolute; top: 0; bottom: 0; background: #2e9d5799; border-left: 2px solid var(--good); border-right: 2px solid var(--good); } #workGauge .needle { position: absolute; top: -2px; bottom: -2px; width: 5px; margin-left: -2px; background: #fff; border-radius: 3px; }
+    #workMeter { position: absolute; right: var(--sr); top: calc(var(--st) + 140px); width: 150px; display: none; font-size: 11px; background: var(--panel); padding: 8px; border-radius: 10px; } #workMeter .bar i { background: #ffd24a; }
+    #hotbar { position: absolute; bottom: var(--sb); left: 50%; transform: translateX(-50%); display: flex; gap: 6px; pointer-events: auto; max-width: 96vw; }
+    #hotbar button { width: min(10.5vw, 58px); min-width: 40px; height: min(10.5vw, 58px); min-height: 40px; border-radius: 12px; background: #101a2ecc; border: 2px solid #fff4; font-size: 22px; position: relative; padding: 0; }
+    #hotbar button small { position: absolute; top: 1px; left: 4px; font-size: 10px; font-weight: 800; opacity: .8; }
+    #hotbar button.on { border-color: var(--accent); background: #3a3010cc; } #hotbar button.need { animation: pulse2 .9s ease-in-out infinite; box-shadow: 0 0 14px var(--accent); }
+    @keyframes pulse2 { 50% { transform: scale(1.12); } }
     #subtitle { position: fixed; left: 50%; bottom: calc(var(--sb) + 150px); transform: translateX(-50%); width: min(86vw, 560px); display: none; box-sizing: border-box;
       background: #0b1220ee; border: 1px solid #7fb0ff; border-radius: 14px; padding: 9px 14px; font-size: 14px; line-height: 1.35; text-align: center; pointer-events: none; }
     #subtitle b { color: #ffd24a; }
@@ -152,6 +168,14 @@
   <div id="marks"></div>
   <div id="popups"></div>
   <div id="subtitle"></div>
+  <div id="work">
+    <div id="workTop"><b id="workTitle"></b><span id="workStep"></span><button id="workBack"></button></div>
+    <div id="workHint"></div>
+    <div class="bar"><i id="workBar"></i></div>
+    <div id="workGauge"><div class="zone"></div><div class="needle"></div></div>
+    <div id="workMeter"><span id="workMeterLabel"></span><div class="bar"><i id="workMeterFill"></i></div></div>
+    <div id="hotbar"></div>
+  </div>
   <div id="left">
     <div id="fps"></div>
     <div class="pills"><button id="pauseBtn"></button><button id="dataBtn"></button></div>

@@ -28,6 +28,7 @@ const isBuilding = (type: ModuleType): type is 'habitat' | 'shelter' => type ===
 // Keeps the 3D base in step with the sim's module list. Owns buildings, doors, markers, the build ghost and meteors.
 export class World {
   buildings: BuildingView[] = [];
+  markersHidden = false; // the close-up work mode hides the floating markers
   private views = new Map<number, ModuleView>();
   private ghost: THREE.Group | null = null;
   private ghostType: ModuleType | null = null;
@@ -98,8 +99,8 @@ export class World {
       const v = this.views.get(m.id);
       if (!v) continue;
       const hasJob = !m.broken && sim.jobs.some((j) => j.moduleId === m.id);
-      v.alert.visible = m.broken;
-      v.job.visible = hasJob;
+      v.alert.visible = m.broken && !this.markersHidden;
+      v.job.visible = hasJob && !this.markersHidden;
       const bob = v.top + Math.sin(time * 4) * 0.18;
       v.alert.position.y = bob; v.job.position.y = bob;
       v.group.rotation.z = m.broken ? Math.sin(time * 30) * 0.004 : 0;

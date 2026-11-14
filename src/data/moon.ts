@@ -40,7 +40,7 @@ export const moon: LevelConfig = {
     battery: { cost: 2, radius: 1.2, power: 0, air: 0, food: 0, powerCap: 50, airCap: 0 },
     lifeSupport: { cost: 3, radius: 1.5, power: -0.09, air: 0.15, food: 0, powerCap: 0, airCap: 0 },
     tank: { cost: 2, radius: 1.6, power: 0, air: 0, food: 0, powerCap: 0, airCap: 50 },
-    greenhouse: { cost: 3, radius: 2.6, power: -0.06, air: -0.01, food: 0.035, powerCap: 0, airCap: 0 },
+    greenhouse: { cost: 3, radius: 2.6, power: -0.06, air: -0.01, food: 0.03, powerCap: 0, airCap: 0 },
   },
   tasks: [
     { id: 'o2gen', at: 'lifeSupport', mini: 'gauge', seconds: 28, reward: { air: 14, research: 3 }, why: null, player: true },
@@ -48,7 +48,7 @@ export const moon: LevelConfig = {
     { id: 'co2', at: 'lifeSupport', mini: 'sequence', seconds: 30, reward: { air: 10, health: 2, research: 3 }, why: null, player: true },
     { id: 'thermal', at: 'battery', mini: 'gauge', seconds: 24, reward: { power: 12, research: 3 }, why: null, player: true },
     { id: 'solar', at: 'solar', mini: 'wipe', seconds: 30, reward: { power: 18, research: 3 }, why: 'dustPanels', player: true },
-    { id: 'greenhouse', at: 'greenhouse', mini: 'wipe', seconds: 28, reward: { food: 12, research: 3 }, why: null, player: true },
+    { id: 'greenhouse', at: 'greenhouse', mini: 'wipe', seconds: 28, reward: { research: 3 }, why: null, player: true },
     { id: 'exercise', at: 'habitat', mini: 'gauge', seconds: 30, reward: { health: 14, research: 2 }, why: 'exercise2h', player: true },
     { id: 'medical', at: 'habitat', mini: 'sequence', seconds: 25, reward: { health: 12, research: 3 }, why: 'bone1', player: true },
     { id: 'radmon', at: 'shelter', mini: 'gauge', seconds: 24, reward: { radiation: -6, research: 4 }, why: null, player: true },
