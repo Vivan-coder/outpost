@@ -25,6 +25,7 @@ export interface UiHandlers {
   fps(): boolean;
   toggleFps(): void;
   cardNew(id: CardId): void;
+  mc(): void;
   callShelter(): void;
   toggleLanguage(): void;
   restart(): void;
@@ -55,12 +56,11 @@ const utc = (iso: string) => iso.replace('T', ' ').replace('Z', '');
 // Turns "[E]" in a translated string into a key cap. Text is ours, never user input.
 const keycaps = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\[([^\]]+)\]/g, '<kbd>$1</kbd>');
 
-const BARS: { key: 'power' | 'air' | 'food' | 'radiation' | 'health'; color: string; icon: string }[] = [
+// Three big resources: Power, Oxygen and Protection. Food, crew health, parts and research are small.
+const BARS: { key: 'power' | 'air' | 'protect'; color: string; icon: string }[] = [
   { key: 'power', color: '#ffd24a', icon: '⚡' },
-  { key: 'air', color: '#5ad1ff', icon: '💧' },
-  { key: 'food', color: '#7be07b', icon: '🌱' },
-  { key: 'health', color: '#c77dff', icon: '❤' },
-  { key: 'radiation', color: '#ff6b5a', icon: '☢' },
+  { key: 'air', color: '#5ad1ff', icon: '💨' },
+  { key: 'protect', color: '#6fd3a8', icon: '🛡' },
 ];
 const UPGRADES: UpgradeKey[] = ['engineering', 'solar', 'lifeSupport', 'greenhouse', 'battery', 'tank', 'station'];
 export const factText = (id: string | null): string | null => (id && (factsJson.facts as Record<string, unknown>)[id] ? t(('fact_' + id) as TextKey) : null);
@@ -85,7 +85,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     fill.style.background = b.color;
     track.appendChild(fill);
     const value = el('span', 'value');
-    row.append(el('span', 'label', `${b.icon} ${t(b.key === 'health' ? 'res_health' : b.key)}`), track, value);
+    row.append(el('span', 'label', `${b.icon} ${t(b.key)}`), track, value);
     $('bars').appendChild(row);
     bars[b.key] = { fill, value, row, last: -1 };
   }
@@ -245,10 +245,9 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       const cap = caps(sim, cfg);
       setBar('power', sim.power, cap.power, true);
       setBar('air', sim.air, cap.air, true);
-      setBar('food', sim.food, cap.food, true);
       document.body.classList.toggle('lowsupply', sim.air < cap.air * 0.2 || sim.food < cap.food * 0.2 || sim.power <= 0);
-      setBar('health', sim.health, 100, true);
-      setBar('radiation', sim.radiation, 100, false);
+      setBar('protect', 100 - sim.radiation, 100, true);
+      $('extras').textContent = t('extras', { f: Math.round((sim.food / cap.food) * 100), h: Math.round(sim.health) });
       $('partsValue').textContent = String(sim.parts);
       $('resValue').textContent = String(sim.research);
       const sig = cfg.goals.map((g) => (sim.goalsDone.includes(g.id) ? '1' : Math.floor(goalProgress(sim, cfg, g) / Math.max(1, g.target / 10)))).join(',');
@@ -615,6 +614,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       const resume = el('button', 'main', t('btnResume'));
       resume.addEventListener('click', closeMenu);
       menuCard.appendChild(resume);
+      menuCard.appendChild(option(1, t('btnMC'), '', '', () => { closeMenu(); h.mc(); }));
       menuCard.appendChild(option(1, t('btnLab'), t('badgeReal'), '', () => { closeMenu(); ui.dataLab(); }));
       menuCard.appendChild(option(2, t('btnLog'), t('logCount', { n: collected.size, m: CARD_IDS.length }), '', () => { closeMenu(); ui.missionLog(); }));
       menuCard.appendChild(option(3, t('qualityLabel', { q: t(`q_${h.quality()}` as TextKey) }), '', '', () => { h.cycleQuality(); ui.openPause(); }));
@@ -683,7 +683,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       if (vrHook) { const won = sim.status === 'won'; vrHook.card(t(won ? 'winTitle' : 'loseTitle'), [won ? t('winBody', { rank: t(`rank${stars(sim)}` as TextKey) }) : t(`lose_${sim.failCause}` as TextKey)], t('btnAgain'), onAgain); return; }
       closeMenu();
       const won = sim.status === 'won';
-      overlayCard.replaceChildren(el('h2', '', t(won ? 'winTitle' : 'loseTitle')));
+      overlayCard.replaceChildren(el('h2', '', t(won ? 'winTitle' : 'retryTitle')));
       if (won) {
         const n = stars(sim);
         overlayCard.appendChild(el('div', 'stars', '★'.repeat(n) + '☆'.repeat(3 - n)));
@@ -702,6 +702,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
           why = t('why_radiation', { s: Math.round(st.exposedS) });
         }
         overlayCard.appendChild(el('p', 'why', why));
+        const hintKey: TextKey = cause === 'radiation' ? (sim.budget.shield < 25 ? 'hint_shield' : 'hint_science') : cause === 'food' ? 'hint_food' : sim.budget.life < 30 ? 'hint_life' : sim.budget.science > 35 ? 'hint_science' : 'hint_life';
+        overlayCard.appendChild(el('p', '', t('retryHint', { p: t(hintKey) })));
       }
       overlayCard.appendChild(el('p', '', `${t('reportTitle')}: ${t('reportStats', { t: mmss(sim.time), fixes: sim.stats.fixes + sim.stats.jobs + sim.stats.crewTasks, builds: sim.stats.builds })}`));
       overlayCard.appendChild(drawChart(sim, cfg));
@@ -741,12 +743,12 @@ function drawChart(sim: SimState, cfg: LevelConfig): HTMLCanvasElement {
     g.fillText(String(p), L - 5, y(p) + 4);
   }
   g.textAlign = 'left';
-  BARS.filter((x) => x.key !== 'health').forEach((b, i) => {
+  BARS.forEach((b, i) => {
     g.strokeStyle = b.color; g.lineWidth = 2.5; g.beginPath();
-    sim.history.forEach((row, n) => { const px = x(row[0]), py = y(row[i + 1]); if (n) g.lineTo(px, py); else g.moveTo(px, py); });
+    sim.history.forEach((row, n) => { const v = b.key === 'protect' ? 100 - row[4] : row[i + 1]; const px = x(row[0]), py = y(v); if (n) g.lineTo(px, py); else g.moveTo(px, py); });
     g.stroke();
     g.fillStyle = b.color;
-    g.fillText(t(b.key === 'health' ? 'res_health' : b.key), L + i * 140, 14);
+    g.fillText(t(b.key), L + i * 140, 14);
   });
   return c;
 }

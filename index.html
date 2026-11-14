@@ -67,6 +67,15 @@
     #left .pills button { min-height: 48px; } #hotbar button { min-width: 48px; min-height: 48px; } #workBack { min-height: 40px; } .chip { min-height: 48px; } .close, .opt { min-height: 48px; }
     #vrBtn { position: fixed; right: var(--sr); top: calc(var(--st) + 60px); z-index: 9; background: #1d4f91; border: 2px solid #9fd0ff; border-radius: 12px; padding: 12px 16px; min-height: 48px; font-weight: 800; font-size: 13px; }
     body.xr #vrBtn { display: none; }
+    #extras { font-size: 10.5px; opacity: .85; margin: 2px 0 4px; }
+    .tip { border-bottom: 2px dotted #9fd0ff; cursor: help; } #tipPop { position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); width: min(88vw, 420px); background: #0b1d44; border: 2px solid #7fb0ff; border-radius: 14px; padding: 12px 16px; font-size: 15px; line-height: 1.4; z-index: 30; display: none; text-align: center; }
+    .badge.arch { border-color: #b6a6ff; background: #2a2160cc; } .badge.live { border-color: #5be08a; background: #14502ecc; }
+    .chips2 { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; } .chip2 { font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; } .chip2.good { background: #14502ecc; border: 1px solid #5be08a; } .chip2.bad { background: #5a1a18cc; border: 1px solid #ff7b6a; }
+    .decOpt { display: block !important; } .decOpt b { display: block; font-size: 15px; grid-column: auto; }
+    .forecast { background: #0e1d3a; border: 1px solid #5a7fd0; border-radius: 12px; padding: 10px 12px; margin: 10px 0; font-size: 13px; line-height: 1.4; } .fcHead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 4px; } .fcRow { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid #ffffff14; } .fcRow.off { opacity: .55; } .fcStep i { font-style: normal; margin-right: 6px; } .fcLine { margin: 4px 0; }
+    .sumBars { margin: 8px 0; } .sumRow { display: grid; grid-template-columns: 84px 1fr 66px; gap: 8px; align-items: center; margin: 7px 0; font-size: 13px; } .sumTrack { position: relative; height: 14px; background: #ffffff1f; border-radius: 7px; overflow: hidden; } .sumTrack i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 7px; } .sumTrack .before { background: #ffffff40; } .sumTrack .after.up { background: #5be08a; opacity: .9; } .sumTrack .after.down { background: #ff7b6a; opacity: .9; height: 60%; top: 20%; } .sumVal { text-align: right; font-variant-numeric: tabular-nums; }
+    .sumList { font-size: 13.5px; line-height: 1.5; } .sumTrade { font-weight: 700; color: #ffd24a; font-size: 13px; } .realNote { background: #12263f; border-left: 3px solid #5ab0ff; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.4; margin: 8px 0; }
+    .budRow { margin: 10px 0 14px; } .budHead { display: flex; justify-content: space-between; font-size: 15px; } .budPct { font-weight: 900; color: #ffd24a; } .budRow small { display: block; opacity: .85; font-size: 11.5px; } .budRow input[type=range] { width: 100%; height: 34px; margin: 4px 0; accent-color: #ffd24a; touch-action: pan-y; } .budEff { color: #9fd0ff; } .gentle { background: #14502ecc; border-radius: 10px; padding: 8px 10px; font-size: 13px; } .tipHint { opacity: .75; } .btnRow { display: grid; gap: 8px; }
     #subtitle { position: fixed; left: 50%; bottom: calc(var(--sb) + 150px); transform: translateX(-50%); width: min(86vw, 560px); display: none; box-sizing: border-box;
       background: #0b1220ee; border: 1px solid #7fb0ff; border-radius: 14px; padding: 9px 14px; font-size: 14px; line-height: 1.35; text-align: center; pointer-events: none; }
     #subtitle b { color: #ffd24a; }
@@ -217,6 +226,7 @@
   <div id="hud">
     <div class="head"><span id="sol"></span><span id="timeLeft"></span></div>
     <div id="bars"></div>
+    <div id="extras"></div>
     <div class="parts"><span id="partsLabel"></span><span id="partsValue"></span></div>
     <div class="parts" style="margin-top:3px;padding-top:0;border:0"><span id="resLabel"></span><span id="resValue"></span></div>
     <div id="dose"></div>

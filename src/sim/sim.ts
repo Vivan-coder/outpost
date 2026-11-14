@@ -80,6 +80,12 @@ export interface LevelConfig {
   rockPile: { x: number; z: number; radius: number };
   storms: StormDef[];
   events: TimedEvent[];
+  // Optional: other planets reuse the same engine
+  planet?: 'moon' | 'mars';
+  dustStorms?: DustStorm[];
+  dustRate?: number; // multiplier for how fast dust settles on the panels
+  commsDelay?: number; // game seconds for a message to cross the radio link (a game-friendly scaling of a real delay)
+  gravity?: number;
 }
 
 // Plants in the greenhouse grow through visible stages: 0 empty, 1 seed, 2 sprout, 3 leafy, 4 ripe.
@@ -87,6 +93,25 @@ export interface LevelConfig {
 export interface Plant { stage: 0 | 1 | 2 | 3 | 4; growth: number; water: number; kind: 'lettuce' | 'tomato' }
 export const PLANT_AT = [0, 20, 55, 100]; // growth seconds needed to reach stage 2, 3 and 4 (tomato takes 1.5x longer)
 export const HARVEST_FOOD = 4;
+
+// Mission Control's daily power budget: shares of the day's power (they always add up to 100, so no choice is free).
+// These effects are a game simplification, not a model of a real station.
+export interface Budget { life: number; shield: number; comms: number; science: number }
+export const BASE_BUDGET: Budget = { life: 35, shield: 25, comms: 15, science: 25 };
+const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+// Day 1 is a practice day: nothing in the budget can go badly wrong.
+const gentle = (s: { day?: number }, x: number) => (s.day === 0 ? Math.max(x, 0.85) : x);
+export const lifeF = (s: { budget: Budget; day?: number }) => gentle(s, clampN(s.budget.life / BASE_BUDGET.life, 0.35, 1.6));
+export const shieldF = (s: { budget: Budget; shieldBonus: number; day?: number }) => gentle(s, clampN((s.budget.shield / BASE_BUDGET.shield) * (1 + s.shieldBonus), 0.35, 1.8));
+export const commsF = (s: { budget: Budget; day?: number }) => gentle(s, clampN(s.budget.comms / BASE_BUDGET.comms, 0.35, 1.5));
+// How much radiation still reaches someone inside the shelter when the shielding systems are underpowered.
+export const shelterLeak = (s: { budget: Budget; shieldBonus: number; day?: number }) => Math.max(0, 1 - Math.min(1, 0.45 + 0.55 * shieldF(s)));
+
+export interface DaySnap { time: number; power: number; air: number; food: number; health: number; radiation: number; research: number }
+export interface DayReport { day: number; start: DaySnap; end: DaySnap; budget: Budget; storm: boolean; dust: boolean }
+export interface Effects { air?: number; power?: number; food?: number; health?: number; radiation?: number; parts?: number; research?: number; dust?: number; shieldBonus?: number }
+
+export interface DustStorm { at: number; duration: number; solarFactor: number }
 
 export interface SimModule { id: number; type: ModuleType; x: number; z: number; broken: boolean; brokenFor: number }
 export interface SimJob { id: number; task: TaskId; moduleId: number | null }
@@ -110,6 +135,9 @@ export type SimEvent =
   | { type: 'upgrade'; key: UpgradeKey; level: number }
   | { type: 'autoRepair'; id: number }
   | { type: 'goal'; id: string }
+  | { type: 'dayStart'; day: number }
+  | { type: 'dustStart' }
+  | { type: 'dustEnd' }
   | { type: 'end' };
 
 export interface SimState {
@@ -129,6 +157,14 @@ export interface SimState {
   nextJobAt: number;
   levels: Record<UpgradeKey, number>;
   dust: number; // 0..1 dust on the solar panels: cuts their output until someone cleans them
+  budget: Budget;
+  shieldBonus: number; // extra shielding earned from decisions
+  day: number; // 0-based game day
+  dayStart: DaySnap;
+  lastDay: DayReport | null;
+  stormToday: boolean;
+  dustToday: boolean;
+  dustActive: boolean;
   lampOn: boolean; // greenhouse grow lamp
   plants: Plant[];
   storm: { index: number; phase: 'warning' | 'active' } | null;
@@ -156,6 +192,8 @@ export function createSim(cfg: LevelConfig): SimState {
     crew: cfg.crewNames.map((name) => ({ name, chore: null, working: false, sheltered: false, choreLeft: 0 })),
     shelterCall: false, playerExposure: 1, jobs: [], nextJobAt: 0,
     dust: 0.1, lampOn: true,
+    budget: { ...BASE_BUDGET }, shieldBonus: 0, day: 0, lastDay: null, stormToday: false, dustToday: false, dustActive: false,
+    dayStart: { time: 0, power: cfg.start.power, air: cfg.start.air, food: cfg.start.food, health: cfg.start.health, radiation: 0, research: cfg.start.research },
     plants: [{ stage: 2, growth: 30, water: 0.6, kind: 'lettuce' }, { stage: 0, growth: 0, water: 0, kind: 'tomato' }, { stage: 0, growth: 0, water: 0, kind: 'lettuce' }],
     levels: { solar: 1, lifeSupport: 1, greenhouse: 1, battery: 1, tank: 1, station: 1, engineering: 1 },
     storm: null, stormIndex: 0, eventIndex: 0,
@@ -329,12 +367,51 @@ export function goalProgress(s: SimState, _cfg: LevelConfig, g: GoalDef): number
   }
 }
 
+// When Mission Control tells the crew about a storm: less power for communications means a later warning (a shorter countdown).
+export function warnTime(s: SimState, cfg: LevelConfig, i: number): number {
+  const d = cfg.storms[i];
+  const lead = Math.max(20, (d.startAt - d.warnAt) * commsF(s));
+  return d.startAt - lead;
+}
+
+const snap = (s: SimState): DaySnap => ({ time: s.time, power: s.power, air: s.air, food: s.food, health: s.health, radiation: s.radiation, research: s.research });
+
+// Applies the effects of a decision card. Both options always cost something.
+export function applyEffects(s: SimState, cfg: LevelConfig, e: Effects): void {
+  applyReward(s, cfg, { air: e.air, power: e.power, food: e.food, health: e.health, radiation: e.radiation, parts: e.parts, research: e.research }, 1);
+  if (e.dust !== undefined) s.dust = clampN(s.dust + e.dust, 0, 1);
+  if (e.shieldBonus) s.shieldBonus += e.shieldBonus;
+}
+
+// How much power the sun is giving right now, in the units shown on the dashboard.
+export function powerToday(s: SimState, cfg: LevelConfig): number {
+  let p = 0;
+  for (const m of s.modules) if (m.type === 'solar' && !m.broken) p += cfg.modules.solar.power * upgradeValue(s, cfg, 'solar') * (1 - 0.4 * s.dust);
+  const ds = cfg.dustStorms?.find((d) => s.time >= d.at && s.time < d.at + d.duration);
+  return Math.round(p * (ds ? ds.solarFactor : 1) * 100) / 10;
+}
+
+function endDay(s: SimState, cfg: LevelConfig): void {
+  s.research += Math.round(s.budget.science / 10); // science share turns into research points
+  s.lastDay = { day: s.day + 1, start: s.dayStart, end: snap(s), budget: { ...s.budget }, storm: s.stormToday, dust: s.dustToday };
+  s.dayStart = snap(s); s.stormToday = false; s.dustToday = false;
+  void cfg;
+}
+
 export function step(s: SimState, cfg: LevelConfig, dt: number): void {
   if (s.status !== 'running') return;
   s.time += dt;
+  const dayNow = Math.floor(s.time / cfg.solLength);
+  if (dayNow > s.day) { endDay(s, cfg); s.day = dayNow; s.outbox.push({ type: 'dayStart', day: dayNow }); }
+  if (s.storm) s.stormToday = true;
+  // Dust storms (Mars): the sun is dimmer and dust piles up faster
+  const ds = cfg.dustStorms?.find((d) => s.time >= d.at && s.time < d.at + d.duration);
+  if (ds && !s.dustActive) { s.dustActive = true; s.outbox.push({ type: 'dustStart' }); }
+  if (!ds && s.dustActive) { s.dustActive = false; s.outbox.push({ type: 'dustEnd' }); }
+  if (ds) s.dustToday = true;
 
   // Storm schedule
-  if (!s.storm && s.stormIndex < cfg.storms.length && s.time >= cfg.storms[s.stormIndex].warnAt) {
+  if (!s.storm && s.stormIndex < cfg.storms.length && s.time >= warnTime(s, cfg, s.stormIndex)) {
     s.storm = { index: s.stormIndex, phase: 'warning' };
     s.outbox.push({ type: 'stormWarn', index: s.stormIndex });
   }
@@ -405,7 +482,7 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
   }
 
   // Dust settles on the panels; plants grow when the greenhouse has power, a working lamp and water
-  s.dust = Math.min(1, s.dust + 0.0012 * dt);
+  s.dust = Math.min(1, s.dust + 0.0012 * (cfg.dustRate ?? 1) * (ds ? 3 : 1) * dt);
   const gh = s.modules.some((m) => m.type === 'greenhouse' && !m.broken);
   if (gh && s.lampOn && s.power > 0) {
     for (const p of s.plants) {
@@ -420,7 +497,7 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
 
   // Production
   const stormActive = s.storm?.phase === 'active';
-  const solarFactor = stormActive ? cfg.storms[s.storm!.index].solarFactor : 1;
+  const solarFactor = (stormActive ? cfg.storms[s.storm!.index].solarFactor : 1) * (ds ? ds.solarFactor : 1);
   const hasPower = s.power > 0;
   let dPower = -cfg.basePowerDraw, dAir = 0, dFood = 0;
   let lifeSupportUp = false, greenhouseUp = false;
@@ -430,7 +507,7 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
     if (m.type === 'solar') { dPower += def.power * upgradeValue(s, cfg, 'solar') * solarFactor * (1 - 0.4 * s.dust); continue; }
     if (def.power < 0 && !hasPower) continue; // powered modules stop when the batteries are empty
     dPower += def.power;
-    if (m.type === 'lifeSupport') { dAir += def.air * upgradeValue(s, cfg, 'lifeSupport'); lifeSupportUp = true; }
+    if (m.type === 'lifeSupport') { dAir += def.air * upgradeValue(s, cfg, 'lifeSupport') * lifeF(s); lifeSupportUp = true; }
     else if (m.type === 'greenhouse') { dAir += def.air; dFood += def.food * upgradeValue(s, cfg, 'greenhouse'); greenhouseUp = true; }
     else { dAir += def.air; dFood += def.food; }
   }
@@ -475,7 +552,8 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
 
   // Radiation reaches people who are outside: a tiny everyday dose, and a large one during a storm
   const crewOutside = s.crew.length ? s.crew.filter((c) => !c.sheltered).length / s.crew.length : 0;
-  const share = cfg.playerDoseWeight * s.playerExposure + (1 - cfg.playerDoseWeight) * crewOutside;
+  const crewInside = s.crew.length ? 1 - crewOutside : 0;
+  const share = cfg.playerDoseWeight * s.playerExposure + (1 - cfg.playerDoseWeight) * (crewOutside + crewInside * shelterLeak(s));
   const rate = cfg.baselineRadiation + (stormActive ? cfg.storms[s.storm!.index].radiation : 0);
   s.radiation = Math.min(100, s.radiation + rate * share * dt);
   if (stormActive) s.stats.exposedS += share * dt;

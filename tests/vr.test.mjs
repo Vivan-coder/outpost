@@ -44,7 +44,7 @@ window.__pitch = (hand, pitch) => { const c = window.__xr.controllers[hand]; c.p
 `);
 
 try {
-  await page.goto('http://localhost:4183/?debug&judge=1');
+  await page.goto('http://localhost:4183/?debug&judge=1&nodash');
   await until(() => !!document.querySelector('#overlayCard .main') && !!window.outpost);
   await page.evaluate(() => document.querySelector('#overlayCard .main').click());
   await until(() => !!document.getElementById('vrBtn'));

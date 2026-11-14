@@ -15,11 +15,13 @@ import { Crew } from './game/crew';
 import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
 import { WorkSession, type WorkEnv } from './game/work';
 import type { WorkKind } from './data/workTasks';
-import { caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
+import { applyEffects, shelterLeak, shieldF, caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
 import { STATION_SPOTS, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi, factText } from './ui/ui';
-import { cardInfo, researchFor, type CardId } from './ui/cards';
+import { cardInfo, researchFor, issDayHigh, issDayLow, type CardId } from './ui/cards';
+import { runMissionControl, controlRoom, type McContext } from './ui/mission';
+import { DECISIONS, planDecisions, seeded } from './data/decisions';
 import { warnLines, stormLines, type Line } from './data/talk';
 import { makeQuiz } from './data/quiz';
 import { stars as starsOf } from './sim/sim.ts';
@@ -68,6 +70,10 @@ const SUN_DIR = new THREE.Vector3(60, 45, 30).normalize();
 const SUN_CALM = new THREE.Color(0xfff4e0), SUN_STORM = new THREE.Color(0xff8a4a);
 
 const level = moon;
+// Every run uses a seed: it changes the order of the decision cards and how fast dust builds up. ?seed=123 repeats a run.
+const runSeed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 1e9);
+level.seed = runSeed;
+level.dustRate = 0.8 + seeded(runSeed)() * 0.6;
 const sim = createSim(level);
 // Testing aid: ?skip=150 starts the mission that many seconds in (nobody acts during the skipped time).
 const skipTo = Number(new URLSearchParams(location.search).get('skip')) || 0;
@@ -220,6 +226,7 @@ const ui = createUi(level, {
   cycleQuality: () => { quality = quality === 'high' ? 'medium' : quality === 'medium' ? 'low' : 'high'; applyQuality(); },
   fps: () => document.body.classList.contains('showfps'),
   toggleFps: () => { document.body.classList.toggle('showfps'); },
+  mc: () => { unlockPointer(); controlRoom(sim, level, (info) => ui.toast(`${t('srcName', { s: info.source })} · ${info.url}`, 'bot'), () => ui.weatherCard(sim)); },
   cardNew: (id: CardId) => { sim.research += 2; sfx.part(); ui.toast(t('newCard', { title: cardInfo(id).title, n: 2 }), 'good'); persistCards(); },
   restart: () => location.reload(),
   tool: (i) => { work?.selectIndex(i); },
@@ -239,9 +246,7 @@ const vrHelpers = {
       bars: [
         { label: t('power'), pct: p(sim.power, cap.power), color: '#ffd24a', warn: sim.power / cap.power < 0.25 },
         { label: t('air'), pct: p(sim.air, cap.air), color: '#5ad1ff', warn: sim.air / cap.air < 0.25 },
-        { label: t('food'), pct: p(sim.food, cap.food), color: '#7be07b', warn: sim.food / cap.food < 0.25 },
-        { label: t('res_health'), pct: p(sim.health, 100), color: '#c77dff', warn: sim.health < 25 },
-        { label: t('radiation'), pct: Math.min(100, sim.radiation), color: '#ff6b5a', warn: sim.radiation > 60 },
+        { label: t('protect'), pct: p(100 - sim.radiation, 100), color: '#6fd3a8', warn: 100 - sim.radiation < 25 },
       ],
       timer: `${Math.floor(mm / 60)}:${String(Math.floor(mm % 60)).padStart(2, '0')}`,
       sol: t('sol', { n: Math.floor(sim.time / level.solLength) + 1 }),
@@ -499,7 +504,8 @@ function actTap(): void {
   } else if (target.type === 'console') {
     unlockPointer(); sfx.click(); ui.openUpgrades(sim);
   } else if (target.type === 'weather') {
-    unlockPointer(); sfx.click(); ui.weatherCard(sim);
+    unlockPointer(); sfx.click();
+    controlRoom(sim, level, (info) => ui.toast(`${t('srcName', { s: info.source })} · ${info.url}`, 'bot'), () => ui.weatherCard(sim));
   }
 }
 
@@ -601,7 +607,7 @@ function showTutorial(): void {
     paragraphs: [t('tutorialBody')],
     list: [t('tut1'), t('tut2'), t('tut3'), t('tut4'), t('tut5')],
     button: t('btnStart'),
-    onClose: unlockAudio,
+    onClose: () => { unlockAudio(); dayFlow(true); },
     extra: [{ label: t('btnLang'), onClick: switchLanguage }],
   });
 }
@@ -650,7 +656,7 @@ const judge = params.has('judge');
 if (judge) {
   document.body.classList.add('judge');
   // A ready, upgraded base about 20 s before the first storm warning, with a job already waiting
-  sim.time = 236; sim.sampleAt = 236; sim.nextJobAt = 236; sim.eventIndex = level.events.filter((e) => e.at < 236).length;
+  sim.time = 236; sim.sampleAt = 236; sim.day = 3; sim.dayStart = { time: 236, power: 75, air: 85, food: 70, health: 88, radiation: 0, research: 6 }; sim.nextJobAt = 236; sim.eventIndex = level.events.filter((e) => e.at < 236).length;
   sim.power = 75; sim.air = 85; sim.food = 70; sim.health = 88; sim.parts = 6; sim.research = 6; sim.dust = 0.6;
   for (const k of ['solar', 'lifeSupport', 'greenhouse', 'engineering', 'station'] as const) sim.levels[k] = 2;
   sim.plants[0] = { stage: 4, growth: 100, water: 0.6, kind: 'lettuce' };
@@ -662,7 +668,7 @@ if (judge) {
   byId('judgeReset').addEventListener('click', () => location.reload());
 } else ui.setCollected(saved.cards);
 function showJudge(): void {
-  ui.card({ title: t('judgeTitle'), paragraphs: [t('judgeBody')], button: t('btnStart'), onClose: unlockAudio });
+  ui.card({ title: t('judgeTitle'), paragraphs: [t('judgeBody')], button: t('btnStart'), onClose: () => { unlockAudio(); dayFlow(true); } });
 }
 const skipIntroNow = params.has('skip') || params.has('nointro') || judge;
 if (skipIntroNow) {
@@ -703,6 +709,9 @@ function handleEvents(): void {
       }
       case 'choreDone': collectResearch(e.task); sfx.part(); ui.toast(t('choreDone', { name: sim.crew[e.crew].name, chore: t(`task_${e.task}` as TextKey) }), 'good'); break;
       case 'upgrade': break; // the console handles its own feedback
+      case 'dayStart': dayFlow(false); break;
+      case 'dustStart': ui.toast(t('mars_dust_t'), 'bad'); break;
+      case 'dustEnd': break;
       case 'autoRepair': { const m = sim.modules.find((mod) => mod.id === e.id); sfx.fix(); if (m) ui.toast(t('autoRepaired', { name: modName(m.type) }), 'good'); break; }
       case 'goal': sfx.win(); ui.toast(t('goalDone', { goal: t(`goal_${e.id}` as TextKey, { n: goalN(e.id) }) }), 'good'); break;
       case 'stormWarn': {
@@ -731,15 +740,15 @@ function handleEvents(): void {
         say({ who: 2, key: 'talk_clear', vars: {} });
         sfx.allClear();
         ui.toast(t('stormOver'), 'good');
-        if (e.index === 0) {
-          const info = level.storms[0].info;
+        {
+          const info = level.storms[e.index].info;
           const kp = Math.max(...solarEvent.gsts.map((g) => g.maxKp));
           unlockPointer();
           ui.card({
             title: t('infoTitle'),
             paragraphs: [
               t('infoBody1', { date: info.sepTimeUtc.replace('T', ' ').replace('Z', ''), cls: info.flareClass }),
-              t('infoBody2'), t('infoBody3', { kp }), t('infoBody4'),
+              t('infoBody2'), t('infoBody3', { kp }), t('doseCompare', { n: Math.round(sim.radiation * 10), lo: issDayLow, hi: issDayHigh }), t('infoBody4'),
             ],
             source: `${t('infoSource', { id: info.sepId })} · ${info.sepUrl}`,
             button: t('btnGotIt'),
@@ -858,6 +867,24 @@ function askQuiz(): void {
   });
 }
 
+// ---- Mission Control: each day starts with a summary, decision cards and the power plan ----
+let choicesToday: string[] = [];
+const DAY_NOTES = ['exercise2h', 'water90', 'bone1', 'flareScale', 'dustPanels', 'water90', 'exercise2h', 'bone1', 'flareScale', 'dustPanels', 'water90', 'exercise2h'];
+const decisionPlan = planDecisions(14, runSeed);
+function dayFlow(first: boolean): void {
+  if (new URLSearchParams(location.search).has('nodash') || xrOn()) return;
+  const day = sim.day + 1;
+  const ctx: McContext = {
+    day, report: first ? null : sim.lastDay, choices: first ? [] : choicesToday.splice(0), decisions: decisionPlan[day - 1] ?? [], gentle: day === 1,
+    dayNote: first ? null : DAY_NOTES[(day - 2 + 12) % 12],
+    applyDecision: (id, o) => { const dec = DECISIONS.find((d) => d.id === id)!; applyEffects(sim, level, dec[o]); choicesToday.push(t(`dec_${id}_${o}` as TextKey)); sfx.build(); },
+    openSource: (info) => ui.toast(`${t('srcName', { s: info.source })} · ${info.url}`, 'bot'),
+    onDone: (b) => { sim.budget = b; sfx.fix(); unlockAudio(); },
+  };
+  unlockPointer();
+  runMissionControl(sim, level, ctx, { decisionEffects: (id, o) => DECISIONS.find((d) => d.id === id)![o] });
+}
+
 const goalN = (id: string) => { const g = level.goals.find((x) => x.id === id)!; return g.kind.endsWith('Streak') ? Math.round(g.target / level.solLength) : g.target; };
 // Fast-forward and skip are for waiting around: they are off while anything is urgent.
 const safeInShelter = () => sim.storm?.phase === 'active' && sim.playerExposure === 0 && sim.crew.every((c) => c.sheltered);
@@ -906,7 +933,7 @@ renderer.setAnimationLoop((now) => {
 
     // Only the shelter stops the radiation; the station's thin walls stop half.
     const inside = world.buildingAt(px, pz);
-    sim.playerExposure = inside < 0 ? 1 : world.buildings[inside].type === 'shelter' ? 0 : stationExposure(sim, level);
+    sim.playerExposure = inside < 0 ? 1 : world.buildings[inside].type === 'shelter' ? shelterLeak(sim) : Math.min(1, stationExposure(sim, level) / shieldF(sim));
     crew.update(dt, sim, px, pz);
 
     simAcc += dt;
