@@ -7,6 +7,8 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { createTerrain, createFarGround, createRocks, heightAt } from './render/terrain';
 import { Intro, createLander, LANDER_AT } from './game/intro';
+import { CutscenePlayer, shotsLength, MAX_CUTSCENE_SECONDS_PER_DAY } from './cutscenes/engine';
+import { buildStormStage, stormFormingShots } from './cutscenes/stormForming';
 import { createStars, createEarth, createSun } from './render/sky';
 import { createInput } from './game/input';
 import { Player, type Blocker } from './game/player';
@@ -15,7 +17,7 @@ import { Crew } from './game/crew';
 import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
 import { WorkSession, type WorkEnv } from './game/work';
 import type { WorkKind } from './data/workTasks';
-import { eatMeal, MEAL_COST, MEAL_HEALTH, applyEffects, shelterLeak, shieldF, caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
+import { warnTime, eatMeal, MEAL_COST, MEAL_HEALTH, applyEffects, shelterLeak, shieldF, caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
 import { STATION, STATION_SPOTS, TASK_SPOT } from './game/layout';
 import { moon, stormsForSeed } from './data/moon.ts';
 import { mars, MARS_DECISIONS, MARS_GRAVITY } from './data/mars.ts';
@@ -560,6 +562,7 @@ function seqPress(n: number): void {
 
 addEventListener('keydown', (e) => {
   unlockAudio();
+  if (cine) { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') cine.finish(); return; }
   if (intro) { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') endIntro(); return; }
   if (e.code === 'Tab') e.preventDefault();
   if (work && !ui.blocking()) {
@@ -944,16 +947,49 @@ function askQuiz(): void {
 let choicesToday: string[] = [];
 const DAY_NOTES = ['exercise2h', 'water90', 'bone1', 'flareScale', 'dustPanels', 'water90', 'exercise2h', 'bone1', 'flareScale', 'dustPanels', 'water90', 'exercise2h'];
 const decisionPlan = planDecisions(14, runSeed);
+// ---- Cutscenes: short in-engine explainers driven by the bundled NASA records ----
+let cine: CutscenePlayer | null = null;
+const cineQueue: (() => void)[] = []; // waits for a safe moment: no menu, no task
+let cineToday = 0; // seconds of cutscene played today (limit about 25)
+const CINE_SEEN = 'outpost.cine.stormForming';
+const cineSeen = (): boolean => { try { return localStorage.getItem(CINE_SEEN) === '1'; } catch { return false; } };
+const reduceMotion = (): boolean => params.has('reduce') || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function playStormCutscene(idx: number, full: boolean, after?: () => void): void {
+  const info = level.storms[idx]?.info;
+  if (!info || xrOn() || cine) { after?.(); return; }
+  const shots = stormFormingShots(info, !full && cineSeen());
+  if (!full && cineToday + shotsLength(shots) > MAX_CUTSCENE_SECONDS_PER_DAY) { after?.(); return; }
+  unlockPointer(); unlockAudio();
+  const p: CutscenePlayer = new CutscenePlayer(buildStormStage(), shots, {
+    camera, root: byId('cineUi'), reduceMotion: reduceMotion(), skipLabel: t('cine_skip'),
+    fx: { hiss: () => sfx.hiss(), thud: () => sfx.thud(), alarm: () => sfx.alarm(), click: () => sfx.click() },
+    onEnd: () => {
+      cine = null; cineToday += p.elapsed;
+      try { localStorage.setItem(CINE_SEEN, '1'); } catch { /* private window */ }
+      player.update(0, input.state);
+      after?.();
+    },
+  });
+  cine = p;
+}
+window.addEventListener('outpost:cine', () => { cineQueue.push(() => playStormCutscene(sim.storm?.index ?? Math.min(sim.stormIndex, level.storms.length - 1), true)); });
+if (params.has('debug')) Object.assign((window as unknown as { outpost: object }).outpost, { cine: (full = true) => playStormCutscene(0, full), cinePlayer: () => cine, cineState: () => ({ playing: !!cine, queued: cineQueue.length, today: cineToday }) });
+
 function dayFlow(first: boolean): void {
   if (new URLSearchParams(location.search).has('nodash') || xrOn()) return;
   if (isMars && !first) return; // the preview is short: one power plan, then radio decisions
   const day = sim.day + 1;
+  cineToday = 0;
   const ctx: McContext = {
     day, report: first ? null : sim.lastDay, choices: first ? [] : choicesToday.splice(0), decisions: decisionPlan[day - 1] ?? [], gentle: day === 1,
     dayNote: first ? null : DAY_NOTES[(day - 2 + 12) % 12],
     applyDecision: (id, o) => { const dec = DECISIONS.find((d) => d.id === id)!; applyEffects(sim, level, dec[o]); choicesToday.push(t(`dec_${id}_${o}` as TextKey)); sfx.build(); },
     openSource: (info) => ui.toast(`${t('srcName', { s: info.source })} · ${info.url}`, 'bot'),
-    onDone: (b) => { sim.budget = b; sfx.fix(); unlockAudio(); },
+    onDone: (b) => {
+      sim.budget = b; sfx.fix(); unlockAudio();
+      // A storm will be announced during this day: explain it with the real data first
+      if (sim.stormIndex < level.storms.length && warnTime(sim, level, sim.stormIndex) <= sim.time + level.solLength) { const idx = sim.stormIndex; cineQueue.push(() => playStormCutscene(idx, false)); }
+    },
   };
   unlockPointer();
   runMissionControl(sim, level, ctx, { decisionEffects: (id, o) => DECISIONS.find((d) => d.id === id)![o] });
@@ -991,8 +1027,10 @@ renderer.setAnimationLoop((now) => {
   const rawDt = (now - last) / 1000;
   last = now;
   const dt = Math.min(rawDt, 0.05);
-  const paused = ui.blocking() || sim.status !== 'running' || !!intro || vrPaused;
+  const paused = ui.blocking() || sim.status !== 'running' || !!intro || !!cine || vrPaused;
   if (xrOn()) vr?.update(dt);
+  if (cine) cine.update(dt);
+  else if (cineQueue.length && !ui.blocking() && !work && runner.stage === 'idle' && sim.status === 'running') cineQueue.shift()!();
   if (intro) { intro.update(dt); if (intro.done) endIntro(); }
 
   if (ffMul > 1 && urgent()) { ffMul = 1; byId('btnFF').classList.remove('on'); }
@@ -1079,8 +1117,8 @@ renderer.setAnimationLoop((now) => {
   shadowTick++;
   if (quality === 'high' || shadowTick % 2 === 0 || xrOn()) renderer.shadowMap.needsUpdate = true;
   if (xrOn()) renderer.render(scene, camera); // no post-processing in VR
-  else if (quality === 'low') renderer.render(work ? workScene : scene, camera);
-  else { renderPass.scene = work ? workScene : scene; composer.render(); }
+  else if (quality === 'low') renderer.render(cine ? cine.scene : work ? workScene : scene, camera);
+  else { renderPass.scene = cine ? cine.scene : work ? workScene : scene; composer.render(); }
 
   acc += rawDt; frames++; worst = Math.max(worst, rawDt);
   if (acc >= 0.5) {

@@ -501,9 +501,11 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         } else row.append(el('b', '', '???'), el('div', '', t('logLocked')));
         overlayCard.appendChild(row);
       }
+      const rp = el('button', 'close', t('cine_replay', { title: t('cine_title') }));
+      rp.addEventListener('click', () => { closeOverlay(); window.dispatchEvent(new CustomEvent('outpost:cine', { detail: 'stormForming' })); });
       const b = el('button', 'main', t('btnClose'));
       b.addEventListener('click', closeOverlay);
-      overlayCard.appendChild(b);
+      overlayCard.append(rp, b);
       overlayCard.scrollTop = 0;
       overlay.classList.add('on');
       b.focus({ preventScroll: true });
