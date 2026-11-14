@@ -4,7 +4,7 @@ import { createModuleModel, createRockPile } from '../render/models';
 import { createBuilding, createMarker, createTag, type Building } from '../render/building';
 import { heightAt } from '../render/terrain';
 import { caps } from '../sim/sim.ts';
-import { CONTAINERS, LANDER_PAD, MODULE_POS, SHELTER_AT, STATION_R } from '../data/layout';
+import { CONTAINERS, LANDER_PAD, MODULE_POS, SHELTER_AT, STATION_R, STATION_PROPS, SHELTER_PROPS } from '../data/layout';
 import { t, type TextKey } from '../i18n/en';
 import type { Blocker } from './collide';
 
@@ -144,6 +144,8 @@ export class World {
     }
     this.blockers.length = 0;
     for (const v of this.buildings) this.blockers.push(v.blocker);
+    // Furniture and machines inside the station and the shelter are solid too, so nothing can be walked through
+    for (const v of this.buildings) for (const p of (v.type === 'habitat' ? STATION_PROPS : v.type === 'shelter' ? SHELTER_PROPS : [])) this.blockers.push({ x: v.x + p.x, z: v.z + p.z, r: p.r * 0.85, playerOnly: true });
     for (const m of sim.modules) if (!isBuilding(m.type)) this.blockers.push({ x: m.x, z: m.z, r: this.cfg.modules[m.type].radius });
     this.blockers.push({ x: this.cfg.rockPile.x, z: this.cfg.rockPile.z, r: this.cfg.rockPile.radius });
     for (const b of this.extraBlockers) this.blockers.push(b);
@@ -184,8 +186,10 @@ export class World {
     const cap = caps(sim, this.cfg);
     const airF = Math.max(0.02, sim.air / cap.air), foodF = Math.max(0.02, sim.food / cap.food), powF = Math.max(0.02, sim.power / cap.power);
     for (const v of this.buildings) {
-      v.b.fills.air.forEach((m) => { m.scale.y = airF; });
-      v.b.fills.food.forEach((m) => { m.scale.y = foodF; });
+      v.b.fills.air.forEach((m) => { m.scale.y = airF; (m.material as THREE.MeshStandardMaterial).color.setHex(airF < 0.25 ? 0xff6b5a : 0x5ad1ff); });
+      v.b.fills.food.forEach((m) => { m.scale.y = foodF; (m.material as THREE.MeshStandardMaterial).color.setHex(foodF < 0.25 ? 0xff6b5a : 0x7be07b); });
+      v.b.tags.air.forEach((tg) => tg.set(t('lvl_oxygen', { p: Math.round(airF * 100) }), airF < 0.25 ? '#ff8a7a' : '#9fe0ff'));
+      v.b.tags.food.forEach((tg) => tg.set(t('lvl_food', { p: Math.round(foodF * 100) }), foodF < 0.25 ? '#ff8a7a' : '#9fe8b8'));
       v.b.fills.crates.forEach((m, i) => { m.visible = i < sim.parts; });
     }
     for (const m of sim.modules) {

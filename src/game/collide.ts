@@ -2,6 +2,7 @@
 export interface Blocker {
   x: number; z: number; r: number;
   ring?: { inner: number; doorHalf: number; open: boolean }; // doorHalf is half the doorway, in radians
+  playerOnly?: boolean; // furniture: solid for the player; the crew walk validated routes and ignore it
 }
 
 export interface Resolved { x: number; z: number; hit: Blocker | null }
@@ -11,6 +12,7 @@ export interface Resolved { x: number; z: number; hit: Blocker | null }
 export function resolve(blockers: Blocker[], px: number, pz: number, nx: number, nz: number, pad: number, ignoreDoors = false): Resolved {
   let hit: Blocker | null = null;
   for (const b of blockers) {
+    if (b.playerOnly && ignoreDoors) continue; // crew movement passes ignoreDoors = true
     const dx = nx - b.x, dz = nz - b.z, d = Math.hypot(dx, dz);
     if (d < 1e-4) continue;
     if (!b.ring) {

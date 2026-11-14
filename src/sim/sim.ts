@@ -158,6 +158,7 @@ export interface SimState {
   jobs: SimJob[];
   nextJobAt: number;
   levels: Record<UpgradeKey, number>;
+  mealAt: number; // sim time when the player may eat again
   dust: number; // 0..1 dust on the solar panels: cuts their output until someone cleans them
   budget: Budget;
   shieldBonus: number; // extra shielding earned from decisions
@@ -193,7 +194,7 @@ export function createSim(cfg: LevelConfig): SimState {
     modules: [],
     crew: cfg.crewNames.map((name) => ({ name, chore: null, working: false, sheltered: false, choreLeft: 0 })),
     shelterCall: false, playerExposure: 1, jobs: [], nextJobAt: 0,
-    dust: 0.1, lampOn: true,
+    dust: 0.1, mealAt: 0, lampOn: true,
     budget: { ...BASE_BUDGET }, shieldBonus: 0, day: 0, lastDay: null, stormToday: false, dustToday: false, dustActive: false,
     dayStart: { time: 0, power: cfg.start.power, air: cfg.start.air, food: cfg.start.food, health: cfg.start.health, radiation: 0, research: cfg.start.research },
     plants: [{ stage: 2, growth: 30, water: 0.6, kind: 'lettuce' }, { stage: 0, growth: 0, water: 0, kind: 'tomato' }, { stage: 0, growth: 0, water: 0, kind: 'lettuce' }],
@@ -279,6 +280,18 @@ function applyReward(s: SimState, cfg: LevelConfig, r: Reward, k: number): void 
 // Something in the greenhouse needs the player: an empty pot, a thirsty plant, a ripe one or a dead lamp.
 export function needsGreenhouse(s: SimState): boolean {
   return !s.lampOn || s.plants.some((p) => p.stage === 0 || p.stage === 4 || (p.stage > 0 && p.water < 0.35));
+}
+
+export const MEAL_COST = 3, MEAL_HEALTH = 6, MEAL_WAIT = 12;
+// The player eats a meal at the canteen: uses food from storage, gives some team health. Game numbers.
+export function eatMeal(s: SimState): 'ok' | 'empty' | 'full' | 'wait' {
+  if (s.food < MEAL_COST) return 'empty';
+  if (s.time < s.mealAt) return 'wait';
+  if (s.health >= 99) return 'full';
+  s.food -= MEAL_COST;
+  s.health = Math.min(100, s.health + MEAL_HEALTH);
+  s.mealAt = s.time + MEAL_WAIT;
+  return 'ok';
 }
 
 export function harvestPlant(s: SimState, cfg: LevelConfig, i: number): boolean {

@@ -15,8 +15,8 @@ import { Crew } from './game/crew';
 import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
 import { WorkSession, type WorkEnv } from './game/work';
 import type { WorkKind } from './data/workTasks';
-import { applyEffects, shelterLeak, shieldF, caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
-import { STATION_SPOTS, TASK_SPOT } from './game/layout';
+import { eatMeal, MEAL_COST, MEAL_HEALTH, applyEffects, shelterLeak, shieldF, caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
+import { STATION, STATION_SPOTS, TASK_SPOT } from './game/layout';
 import { moon, stormsForSeed } from './data/moon.ts';
 import { mars, MARS_DECISIONS, MARS_GRAVITY } from './data/mars.ts';
 import { createUi, factText } from './ui/ui';
@@ -106,6 +106,9 @@ type Target =
   | { type: 'door'; view: BuildingView }
   | { type: 'console' }
   | { type: 'weather' }
+  | { type: 'eat' }
+  | { type: 'food' }
+  | { type: 'air' }
   | { type: 'crew'; index: number };
 
 let placing: ModuleType | null = null;
@@ -490,6 +493,12 @@ function pickTarget(): Target | null {
   const hab = world.buildings.find((v) => v.type === 'habitat');
   if (hab) consider(hab.x + STATION_SPOTS.engineering.x, hab.z + STATION_SPOTS.engineering.z, 2.4, 1.4, 0.2, () => ({ type: 'console' }));
   if (hab) consider(hab.x + STATION_SPOTS.weather.x, hab.z + STATION_SPOTS.weather.z, 2.4, 1.4, 0.25, () => ({ type: 'weather' }));
+  // Galley and life support you can use: eat at the canteen, read the food and oxygen levels
+  if (hab) {
+    consider(hab.x + STATION.canteen.x, hab.z + STATION.canteen.z, 2.0, 1.2, -0.8, () => ({ type: 'eat' }));
+    consider(hab.x + STATION.foodLocker.x, hab.z + STATION.foodLocker.z, 2.4, 1.4, -0.4, () => ({ type: 'food' }));
+    consider(hab.x + STATION.o2.x, hab.z + STATION.o2.z, 2.6, 1.6, -0.4, () => ({ type: 'air' }));
+  }
   const door = world.doorNear(px, pz);
   if (door) consider(door.x, door.z + door.r, 2.6, 1.6, 0.5, () => ({ type: 'door', view: door }));
   const safeTalk = !sim.storm || (sim.storm.phase === 'active' && sim.playerExposure === 0);
@@ -508,6 +517,17 @@ function actTap(): void {
     if (sim.storm) askQuiz(); else openCrew(target.index);
   } else if (target.type === 'console') {
     unlockPointer(); sfx.click(); ui.openUpgrades(sim);
+  } else if (target.type === 'eat') {
+    const r = eatMeal(sim);
+    if (r === 'ok') { sfx.part(); ui.popup('🍲 +' + MEAL_HEALTH + ' ♥'); ui.toast(t('eatOk', { cost: MEAL_COST, gain: MEAL_HEALTH }), 'good'); } else { sfx.click(); ui.toast(t(r === 'empty' ? 'eatEmpty' : r === 'full' ? 'eatFull' : 'eatWait'), r === 'empty' ? 'bad' : undefined); }
+  } else if (target.type === 'food' || target.type === 'air') {
+    sfx.click();
+    const food = target.type === 'food', cap = caps(sim, level);
+    const have = food ? sim.food : sim.air, full = food ? cap.food : cap.air;
+    // Minutes left at the current rate over the last day: simple, labelled as a game estimate
+    const rate = Math.max(0.01, ((food ? sim.dayStart.food : sim.dayStart.air) - have) / Math.max(1, sim.time - sim.dayStart.time));
+    const mins = rate <= 0.011 ? '99+' : String(Math.max(0, Math.round(have / rate / 60 * 10) / 10));
+    ui.toast(t(food ? 'foodInfo' : 'airInfo', { p: Math.round(have / full * 100), m: mins }));
   } else if (target.type === 'weather') {
     unlockPointer(); sfx.click();
     controlRoom(sim, level, (info) => ui.toast(`${t('srcName', { s: info.source })} · ${info.url}`, 'bot'), () => ui.weatherCard(sim));
@@ -835,6 +855,9 @@ function updatePrompt(): void {
   if (target.type === 'task') {
     const action = t(target.task.kind === 'repair' ? 'do_repair' : (`do_${target.task.kind}` as TextKey), { name: target.name });
     ui.setPrompt(touch ? t('promptHoldTouch', { action }) : t('promptHold', { key: 'E', action }), t(target.task.kind === 'repair' ? 'btnAct_repair' : 'btnAct_task'));
+  } else if (target.type === 'eat' || target.type === 'food' || target.type === 'air') {
+    const action = t(target.type === 'eat' ? 'do_eat' : target.type === 'food' ? 'do_food' : 'do_air');
+    ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t(target.type === 'eat' ? 'btnAct_eat' : 'btnAct_check'));
   } else if (target.type === 'console' || target.type === 'weather') {
     const action = t(target.type === 'console' ? 'do_console' : 'do_weather');
     ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t(target.type === 'console' ? 'btnAct_console' : 'btnAct_weather'));

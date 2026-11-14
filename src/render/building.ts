@@ -10,6 +10,8 @@ export interface Building {
   group: THREE.Group;
   // Storage that fills and empties with the meters: tank gauges, food locker gauge, spare-part crates
   fills: { air: THREE.Mesh[]; food: THREE.Mesh[]; crates: THREE.Mesh[] };
+  // Live number labels above the gauges (Oxygen 54%, Food 62%)
+  tags: { air: ReturnType<typeof createTag>[]; food: ReturnType<typeof createTag>[] };
   wall: THREE.MeshStandardMaterial;
   roof: THREE.MeshStandardMaterial;
   door: THREE.Mesh;
@@ -66,14 +68,16 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
   const doorHalf = Math.asin(1.25 / r);
   const shelter = kind === 'shelter';
   const fills: Building['fills'] = { air: [], food: [], crates: [] };
+  const tags: Building['tags'] = { air: [], food: [] };
+  const liveTag = (list: ReturnType<typeof createTag>[], x: number, y: number, z: number) => { const tg = createTag(); tg.sprite.position.set(x, y, z); tg.sprite.scale.multiplyScalar(0.95); tg.sprite.renderOrder = 5; group.add(tg.sprite); list.push(tg); };
   const STATION_R_PLACE = r;
   // A level gauge: a dark slot with a bar that is scaled from the sim each frame (the bar grows up from its base)
   const gauge = (x: number, z: number, color: number): THREE.Mesh => {
     const slot = box(group, 0.16, 1.5, 0.06, std(0x15171c), x, 1.0, z);
     slot.rotation.y = 0;
-    const geo = new THREE.BoxGeometry(0.1, 1.4, 0.08); geo.translate(0, 0.7, 0);
+    const geo = new THREE.BoxGeometry(0.1, 1.4, 0.2); geo.translate(0, 0.7, 0);
     const bar = new THREE.Mesh(geo, std(color, { emissive: color, emissiveIntensity: 0.7 }));
-    bar.position.set(x, 0.3, z + 0.03); group.add(bar);
+    bar.position.set(x, 0.3, z); group.add(bar);
     return bar;
   };
   const wall = std(shelter ? 0x8d8a84 : 0xe4e7ea, { side: THREE.DoubleSide, transparent: true });
@@ -173,6 +177,7 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
     tank.position.set(S.water.x, 1.15, S.water.z); group.add(tank);
     label(group, 'lbl_water', S.water.x, 2.4, S.water.z);
     fills.air.push(gauge(S.o2.x + 0.85, S.o2.z, 0x5ad1ff), gauge(S.water.x + 0.85, S.water.z, 0x5ad1ff));
+    liveTag(tags.air, S.o2.x + 0.85, 2.15, S.o2.z);
 
     // Galley: table, food storage lockers with a level gauge
     const table = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.12, 10), std(0xe8e2d0));
@@ -181,6 +186,7 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
     label(group, 'lbl_canteen', S.canteen.x, 2.2, S.canteen.z);
     box(group, 0.7, 1.9, 1.0, std(0x6a7a55), S.foodLocker.x, 0.95, S.foodLocker.z);
     fills.food.push(gauge(S.foodLocker.x + 0.45, S.foodLocker.z, 0x7be07b));
+    liveTag(tags.food, S.foodLocker.x + 0.45, 2.15, S.foodLocker.z);
     label(group, 'lbl_foodlocker', S.foodLocker.x, 2.3, S.foodLocker.z, '#9fe8b8', 0.8);
 
     // Medical corner, exercise machine, bunks and the cupola-style window
@@ -212,7 +218,7 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
     run(S.control.x + 0.9, S.control.z + 0.2, S.engineering.x - 0.9, S.engineering.z + 0.2, 0xf2c832);
     run(S.weather.x + 0.4, S.weather.z - 0.5, S.control.x - 0.9, S.control.z, 0xf2c832);
   }
-  return { group, wall, roof, door, doorHalf, fills };
+  return { group, wall, roof, door, doorHalf, fills, tags };
 }
 
 // Speech bubble: word-wrapped text on a rounded panel above a head.
