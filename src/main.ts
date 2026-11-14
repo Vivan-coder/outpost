@@ -9,7 +9,9 @@ import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './g
 import { assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
 import { STATION, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
-import { createUi } from './ui/ui';
+import { createUi, factText } from './ui/ui';
+import { warnLines, stormLines, type Line } from './data/talk';
+import { makeQuiz } from './data/quiz';
 import { stars as starsOf } from './sim/sim.ts';
 import { sfx, unlockAudio } from './audio/sfx';
 import { t, setLanguage, type TextKey } from './i18n/en';
@@ -71,7 +73,7 @@ const input = createInput(canvas);
 const player = new Player(camera, blockers);
 const runner = new TaskRunner();
 const keys = new Set<string>();
-if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys } });
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz } });
 
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }
@@ -185,7 +187,8 @@ function pickTarget(): Target | null {
   if (hab) consider(hab.x + STATION.engineering.x, hab.z + STATION.engineering.z + 1.2, 2.4, 1.4, 0.2, () => ({ type: 'console' }));
   const door = world.doorNear(px, pz);
   if (door) consider(door.x, door.z + door.r, 2.6, 1.6, 0.5, () => ({ type: 'door', view: door }));
-  if (!sim.storm) crew.members.forEach((m, index) => consider(m.x, m.z, 2.8, 0, 0.3, () => ({ type: 'crew', index })));
+  const safeTalk = !sim.storm || (sim.storm.phase === 'active' && sim.playerExposure === 0);
+  if (safeTalk) crew.members.forEach((m, index) => consider(m.x, m.z, 2.8, 0, 0.3, () => ({ type: 'crew', index })));
   return best;
 }
 
@@ -197,7 +200,7 @@ function actTap(): void {
     sfx.click();
     ui.toast(t(open ? 'doorOpened' : 'doorClosed'));
   } else if (target.type === 'crew') {
-    openCrew(target.index);
+    if (sim.storm) askQuiz(); else openCrew(target.index);
   } else if (target.type === 'console') {
     unlockPointer(); sfx.click(); ui.openUpgrades(sim);
   }
@@ -312,10 +315,11 @@ function handleEvents(): void {
       case 'upgrade': break; // the console handles its own feedback
       case 'autoRepair': { const m = sim.modules.find((mod) => mod.id === e.id); sfx.fix(); if (m) ui.toast(t('autoRepaired', { name: modName(m.type) }), 'good'); break; }
       case 'goal': sfx.win(); ui.toast(t('goalDone', { goal: t(`goal_${e.id}` as TextKey, { n: goalN(e.id) }) }), 'good'); break;
-      case 'stormWarn': sfx.alarm(); sirenAt = clock + 12; bot('botStorm'); break;
+      case 'stormWarn': sfx.alarm(); sirenAt = clock + 12; bot('botStorm'); queueTalk(warnLines(level.storms[e.index]), 4, 5); break;
       case 'stormStart': {
         sfx.alarm();
         bot('botImpact');
+        queueTalk(stormLines(level.storms[e.index], Math.max(...solarEvent.gsts.map((g) => g.maxKp)), factText), 6, 6.5);
         if (sim.playerExposure > 0) {
           const tg = runner.target;
           const r = runner.cancel('storm');
@@ -324,6 +328,8 @@ function handleEvents(): void {
         break;
       }
       case 'stormEnd': {
+        talkQueue = [];
+        say({ who: 2, key: 'talk_clear', vars: {} });
         sfx.allClear();
         ui.toast(t('stormOver'), 'good');
         if (e.index === 0) {
@@ -377,8 +383,8 @@ function updatePrompt(): void {
   } else {
     const action = target.type === 'door'
       ? t(target.view.blocker.ring!.open ? 'do_closeDoor' : 'do_openDoor')
-      : t('do_talk', { name: sim.crew[target.index].name });
-    ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t(target.type === 'door' ? 'btnAct_door' : 'btnAct_talk'));
+      : t(sim.storm ? 'do_quiz' : 'do_talk', { name: sim.crew[target.index].name });
+    ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t(target.type === 'door' ? 'btnAct_door' : sim.storm ? 'btnAct_quiz' : 'btnAct_talk'));
   }
 }
 
@@ -428,9 +434,35 @@ function jobList(): { text: string; urgent: boolean }[] {
   return out;
 }
 
+// Crew talk: lines are queued and spoken one at a time, as a bubble over the head and a subtitle.
+let talkQueue: Line[] = [], nextTalkAt = 0, talkGap = 6.5;
+const askedQuiz = new Set<string>();
+function say(l: Line): void {
+  const text = t(l.key, l.vars);
+  crew.say(l.who, text, 6, clock);
+  ui.subtitle(sim.crew[l.who].name, text, 6);
+}
+function queueTalk(lines: Line[], delay: number, gap: number): void {
+  talkQueue = lines; nextTalkAt = clock + delay; talkGap = gap;
+}
+// Next unanswered storm question, as a numbered menu. Right answers earn research points.
+function askQuiz(): void {
+  const idx = sim.storm?.index ?? 0;
+  const qs = makeQuiz(level.storms[idx].info);
+  const next = qs.find((x) => !askedQuiz.has(`${idx}:${x.id}`));
+  unlockPointer();
+  if (!next) { ui.toast(t('quizNone'), 'good'); return; }
+  ui.openQuiz(t(next.key), next.options, (i) => {
+    askedQuiz.add(`${idx}:${next.id}`);
+    if (i === next.correct) { sim.research += 3; sfx.win(); ui.popup('+3 ★'); ui.toast(t('quizRight', { n: 3 }), 'good'); }
+    else { sfx.broke(); ui.toast(t('quizWrong', { a: next.options[next.correct] }), 'bad'); }
+  });
+}
+
 const goalN = (id: string) => { const g = level.goals.find((x) => x.id === id)!; return g.kind.endsWith('Streak') ? Math.round(g.target / level.solLength) : g.target; };
 // Fast-forward and skip are for waiting around: they are off while anything is urgent.
-const urgent = () => !!sim.storm || sim.modules.some((m) => m.broken) || sim.stormIndex < level.storms.length && level.storms[sim.stormIndex].warnAt - sim.time < 15;
+const safeInShelter = () => sim.storm?.phase === 'active' && sim.playerExposure === 0 && sim.crew.every((c) => c.sheltered);
+const urgent = () => !safeInShelter() && (!!sim.storm || sim.modules.some((m) => m.broken) || sim.stormIndex < level.storms.length && level.storms[sim.stormIndex].warnAt - sim.time < 15);
 function toggleFF(): void {
   if (ffMul > 1) { ffMul = 1; byId('btnFF').classList.remove('on'); ui.toast(t('ffOff')); return; }
   if (urgent()) { ui.toast(t('ffBlocked'), 'bad'); return; }
@@ -479,6 +511,8 @@ renderer.setAnimationLoop((now) => {
     if (ticked) { handleEvents(); ui.update(sim, clock, crew.safeCount(sim)); ui.setJobs(jobList()); }
 
     world.update(dt, sim, clock, px, pz, crew.positions());
+    if (talkQueue.length > 0 && clock >= nextTalkAt) { say(talkQueue.shift()!); nextTalkAt = clock + talkGap; }
+    crew.tickSpeech(clock);
 
     // Build ghost follows where the player is looking, on the ground.
     if (placing) {

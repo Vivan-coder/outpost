@@ -1,7 +1,7 @@
 // Pure simulation: no three.js, no DOM, no imports. Advanced only by step() on a fixed tick.
 
 export type ModuleType = 'habitat' | 'shelter' | 'solar' | 'battery' | 'lifeSupport' | 'tank' | 'greenhouse';
-export type TaskId = 'o2gen' | 'water' | 'co2' | 'thermal' | 'solar' | 'greenhouse' | 'exercise' | 'medical' | 'radmon' | 'comms' | 'regolith';
+export type TaskId = 'o2gen' | 'water' | 'co2' | 'thermal' | 'solar' | 'greenhouse' | 'exercise' | 'medical' | 'radmon' | 'comms' | 'regolith' | 'supplies';
 export type MiniType = 'sequence' | 'gauge' | 'wipe';
 export type FailCause = 'air' | 'food' | 'radiation';
 export type UpgradeKey = 'solar' | 'lifeSupport' | 'greenhouse' | 'battery' | 'tank' | 'station' | 'engineering';
@@ -309,6 +309,13 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
       s.storm.phase = 'active';
       s.shelterCall = true; // anyone still outside runs for the shelter
       s.outbox.push({ type: 'stormStart', index: s.storm.index });
+      // Something useful to do while waiting inside the shelter
+      if (s.modules.some((m) => m.type === 'shelter')) {
+        for (const id of ['radmon', 'supplies'] as TaskId[]) {
+          const m = s.modules.find((mod) => mod.type === 'shelter')!;
+          if (!s.jobs.some((j) => j.task === id)) { const job: SimJob = { id: s.nextId++, task: id, moduleId: m.id }; s.jobs.push(job); s.outbox.push({ type: 'job', id: job.id }); }
+        }
+      }
     } else if (s.storm.phase === 'active' && s.time >= d.startAt + d.duration) {
       breakRandom(s, d.surgeBreaks, 'surge', 'solar');
       s.outbox.push({ type: 'stormEnd', index: s.storm.index });

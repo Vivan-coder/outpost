@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { LevelConfig, SimState, TaskId } from '../sim/sim.ts';
 import { createAstronaut, type Astronaut } from '../render/models';
-import { createTag } from '../render/building';
+import { createTag, createBubble } from '../render/building';
 import { heightAt } from '../render/terrain';
 import { resolve, type Blocker } from './collide';
 import { STATION, TASK_SPOT } from './layout';
@@ -16,6 +16,7 @@ interface Member {
   x: number; z: number; facing: number; anim: number;
   activity: Activity;
   goalKey: string; path: { x: number; z: number }[]; stop: Stop | null; arrived: boolean;
+  bubble: ReturnType<typeof createBubble>; sayUntil: number;
   routineIndex: number; dwell: number; greet: number; greetCooldown: number; startedInside: boolean;
 }
 
@@ -26,7 +27,7 @@ const ROUTINE = ['galley', 'tablet', 'exercise', 'window'] as const;
 // What a crew member looks like while doing each task.
 const TASK_ACT: Record<TaskId, Activity> = {
   o2gen: 'tablet', water: 'carrying', co2: 'carrying', thermal: 'tablet', solar: 'wiping', greenhouse: 'watering',
-  exercise: 'exercising', medical: 'tablet', radmon: 'tablet', comms: 'tablet', regolith: 'carrying',
+  exercise: 'exercising', medical: 'tablet', radmon: 'tablet', comms: 'tablet', regolith: 'carrying', supplies: 'carrying',
 };
 
 // Crew live in the habitat: they sit in the galley, read a tablet, work out and look out of the window.
@@ -41,13 +42,16 @@ export class Crew {
       const tag = createTag();
       tag.sprite.position.y = 2.5;
       model.group.add(tag.sprite);
+      const bubble = createBubble();
+      bubble.sprite.position.y = 3.35; bubble.sprite.visible = false;
+      model.group.add(bubble.sprite);
       const crate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: 0xb58a4a, flatShading: true }));
       crate.position.set(0, 1.1, 0.5); crate.visible = false;
       model.group.add(crate);
       const x = hab ? hab.x - 1.6 + i * 1.6 : i * 2, z = hab ? hab.z + 0.5 : 8;
       scene.add(model.group);
       this.members.push({
-        model, crate, tag, x, z, facing: 0, anim: i * 1.7, activity: 'walking',
+        model, crate, tag, bubble, sayUntil: 0, x, z, facing: 0, anim: i * 1.7, activity: 'walking',
         goalKey: '', path: [], stop: null, arrived: false,
         routineIndex: i % ROUTINE.length, dwell: 0, greet: 0, greetCooldown: 4 + i * 3, startedInside: true,
       });
@@ -55,6 +59,18 @@ export class Crew {
   }
 
   positions(): { x: number; z: number }[] { return this.members; }
+
+  // Speech bubble above a crew member's head.
+  say(i: number, text: string, seconds: number, now: number): void {
+    const m = this.members[i];
+    m.bubble.set(text);
+    m.bubble.sprite.visible = true;
+    m.sayUntil = now + seconds;
+  }
+
+  tickSpeech(now: number): void {
+    for (const m of this.members) if (m.bubble.sprite.visible && now > m.sayUntil) m.bubble.sprite.visible = false;
+  }
 
   safeCount(sim: SimState): number { return sim.crew.filter((c) => c.sheltered).length; }
 
@@ -200,6 +216,10 @@ export class Crew {
       c.sheltered = sim.shelterCall && shelterIdx >= 0 && this.world.buildingAt(m.x, m.z) === shelterIdx;
 
       this.animate(m, dt, storm);
+      // Keep name tags and speech bubbles a readable size, near or far.
+      const k = Math.max(0.4, Math.min(1.3, dPlayer * 0.14));
+      m.tag.sprite.scale.set(2.6 * k, 0.49 * k, 1);
+      m.bubble.sprite.scale.set(4.6 * k, 1.34 * k, 1);
       const near = dPlayer < 14;
       m.tag.set(near ? `${c.name} · ${t(`act_${m.activity}` as TextKey)}` : c.name);
     });

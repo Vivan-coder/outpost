@@ -19,4 +19,5 @@ export const TASK_SPOT: Record<string, { x: number; z: number }> = {
   medical: { x: 0.0, z: -0.5 },
   comms: { x: -1.9, z: -3.0 },
   radmon: { x: 0, z: -1.8 },
+  supplies: { x: 1.8, z: 0.6 },
 };

@@ -87,7 +87,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   const banner = $('banner'), shelterBtn = $('shelterBtn'), storm = $('storm');
   const actBtn = $('actBtn'), taskBox = $('task'), seq = $('seq'), gauge = $('gauge');
   let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = null as string | null, lastPrompt = '', lastTask = '', lastGoals = '';
-  let menuKind: 'build' | 'crew' | 'pause' | 'upgrade' | null = null;
+  let menuKind: 'build' | 'crew' | 'pause' | 'upgrade' | 'quiz' | null = null;
+  let subTimer = 0;
   let goalsOpen = false, lastSim: SimState | null = null;
   const marks = new Map<string, HTMLElement>();
   let actHeld = false;
@@ -303,6 +304,25 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         (n.lastElementChild as HTMLElement).textContent = `${m.label} ${Math.round(m.dist)}m`;
       }
       for (const [id, n] of marks) if (!seen.has(id)) { n.remove(); marks.delete(id); }
+    },
+
+    // Subtitle line for what the crew say, so it can be read even when they are far away.
+    subtitle(name: string, text: string, seconds: number): void {
+      const box = $('subtitle');
+      box.replaceChildren(el('b', '', name), document.createTextNode(': ' + text));
+      box.style.display = 'block';
+      clearTimeout(subTimer);
+      subTimer = window.setTimeout(() => { box.style.display = 'none'; }, seconds * 1000);
+    },
+
+    // One quiz question with numbered answers. onPick gets the chosen index.
+    openQuiz(question: string, options: string[], onPick: (i: number) => void): void {
+      menuKind = 'quiz';
+      menuCard.replaceChildren(el('h2', '', t('quizTitle')), el('p', '', question));
+      options.forEach((o, i) => menuCard.appendChild(option(i + 1, o, '', '', () => { closeMenu(); onPick(i); })));
+      menuCard.append(closer(), el('p', 'keys', t('menuKeys')));
+      menu.classList.add('on');
+      focusFirst(menuCard);
     },
 
     popup(text: string): void {

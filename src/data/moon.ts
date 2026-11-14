@@ -53,6 +53,7 @@ export const moon: LevelConfig = {
     { id: 'medical', at: 'habitat', mini: 'sequence', seconds: 25, reward: { health: 12, research: 3 }, why: 'bone1', player: true },
     { id: 'radmon', at: 'shelter', mini: 'gauge', seconds: 24, reward: { radiation: -6, research: 4 }, why: null, player: true },
     { id: 'comms', at: 'habitat', mini: 'sequence', seconds: 30, reward: { research: 5 }, why: null, player: true },
+    { id: 'supplies', at: 'shelter', mini: 'sequence', seconds: 22, reward: { food: 6, research: 3 }, why: null, player: true },
     { id: 'regolith', at: 'rockPile', mini: 'wipe', seconds: 30, reward: { parts: 2, research: 1 }, why: null, player: false },
   ],
   upgrades: {
@@ -88,8 +89,8 @@ export const moon: LevelConfig = {
     windowEnd: 540,
     minWarning: 60,
     maxWarning: 90,
-    minDuration: 60,
-    maxDuration: 90,
+    minDuration: 40,
+    maxDuration: 55,
     secondsPerFlareMinute: 1.9,
     peakRadiation: 1.5,
     solarFactor: 0.1,

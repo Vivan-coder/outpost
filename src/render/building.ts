@@ -148,6 +148,40 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
   return { group, wall, roof, door, doorHalf };
 }
 
+// Speech bubble: word-wrapped text on a rounded panel above a head.
+export function createBubble(): { sprite: THREE.Sprite; set(text: string): void } {
+  const c = document.createElement('canvas');
+  c.width = 768; c.height = 224;
+  const ctx = c.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sprite.scale.set(4.6, 1.34, 1);
+  sprite.renderOrder = 9;
+  return {
+    sprite,
+    set(text) {
+      ctx.clearRect(0, 0, 768, 224);
+      ctx.font = 'bold 34px system-ui, sans-serif';
+      const lines: string[] = [];
+      let line = '';
+      for (const word of text.split(' ')) {
+        const test = line ? line + ' ' + word : word;
+        if (ctx.measureText(test).width > 680 && line) { lines.push(line); line = word; } else line = test;
+      }
+      lines.push(line);
+      const shown = lines.slice(0, 4);
+      const h = 36 + shown.length * 42;
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.beginPath(); ctx.roundRect(20, 200 - h, 728, h, 26); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(360, 200); ctx.lineTo(384, 222); ctx.lineTo(408, 200); ctx.fill();
+      ctx.fillStyle = '#10182c'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      shown.forEach((l, i) => ctx.fillText(l, 384, 200 - h + 38 + i * 42, 700));
+      tex.needsUpdate = true;
+    },
+  };
+}
+
 // Marker floating over a module: red "!" for broken, yellow star for a job waiting.
 export function createMarker(glyph: string, fill: string): THREE.Sprite {
   const c = document.createElement('canvas');
