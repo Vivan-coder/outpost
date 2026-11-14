@@ -42,6 +42,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.85;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.autoUpdate = false; // shadows are refreshed on a schedule below (the sun never moves, so this is cheap)
 
 const scene = new THREE.Scene();
 const sky = new THREE.Color(0x000000);
@@ -119,18 +120,21 @@ function saveProgress(sim: SimState): void {
 type Quality = 'low' | 'medium' | 'high';
 let quality: Quality = matchMedia('(pointer: coarse)').matches ? 'medium' : 'high';
 try { const v = localStorage.getItem('outpost.quality'); if (v === 'low' || v === 'medium' || v === 'high') quality = v; } catch { /* storage blocked */ }
-const PIXEL_CAP: Record<Quality, number> = { low: 1, medium: 1.5, high: 2 };
+const PIXEL_CAP: Record<Quality, number> = { low: 1, medium: 1.25, high: 2 };
+const MSAA: Record<Quality, number> = { low: 0, medium: 2, high: 4 };
+let dynScale = 1; // dynamic resolution: drops a little when the frame rate dips and recovers when it is steady
 const SHADOW_SIZE: Record<Quality, number> = { low: 512, medium: 1024, high: 2048 };
 function applyQuality(): void {
   sun.castShadow = quality !== 'low';
   sun.shadow.map?.dispose(); sun.shadow.map = null;
   applyEnvironment();
   bloomPass.enabled = quality !== 'low';
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { rt.samples = MSAA[quality]; rt.dispose(); }
   sun.shadow.mapSize.set(SHADOW_SIZE[quality], SHADOW_SIZE[quality]);
   resize();
   try { localStorage.setItem('outpost.quality', quality); } catch { /* storage blocked */ }
 }
-let lowRun = 0;
+let lowRun = 0, dipRun = 0, steadyRun = 0, shadowTick = 0;
 
 // ---- Image-based lighting from a CC0 sky (Poly Haven), loaded after start-up so it never delays the first frame ----
 let envMap: THREE.Texture | null = null;
@@ -483,7 +487,7 @@ byId('introUi').addEventListener('pointerdown', () => { if (intro && intro.t > 1
 
 function resize(): void {
   const w = innerWidth, h = innerHeight;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL_CAP[quality]));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL_CAP[quality]) * dynScale);
   renderer.setSize(w, h, false);
   composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h);
   camera.aspect = w / h;
@@ -871,6 +875,8 @@ renderer.setAnimationLoop((now) => {
   sun.target.position.copy(player.pos);
   sun.position.set(player.pos.x + 60, player.pos.y + 45, player.pos.z + 30);
 
+  shadowTick++;
+  if (quality === 'high' || shadowTick % 2 === 0) renderer.shadowMap.needsUpdate = true;
   if (quality === 'low') renderer.render(work ? workScene : scene, camera);
   else { renderPass.scene = work ? workScene : scene; composer.render(); }
 
@@ -879,9 +885,15 @@ renderer.setAnimationLoop((now) => {
     const info = renderer.info.render;
     fpsEl.textContent = `${Math.round(frames / acc)} fps  worst ${(worst * 1000).toFixed(0)} ms\n${info.calls} calls  ${(info.triangles / 1000).toFixed(0)}k tris  dpr ${renderer.getPixelRatio().toFixed(1)}`;
     if (!params.has('debug') && !paused && rawDt < 0.25 && !document.hidden) {
-      lowRun = frames / acc < 28 ? lowRun + 1 : 0;
+      const f = frames / acc;
+      dipRun = f < 52 ? dipRun + 1 : 0;
+      steadyRun = f >= 58 ? steadyRun + 1 : 0;
+      if (dipRun >= 2 && dynScale > 0.65) { dynScale = Math.max(0.65, dynScale - 0.1); dipRun = 0; resize(); }
+      else if (steadyRun >= 8 && dynScale < 1) { dynScale = Math.min(1, dynScale + 0.05); steadyRun = 0; resize(); }
+      // Only if the lowest resolution still cannot keep up do we lower the quality setting
+      lowRun = f < 28 && dynScale <= 0.65 ? lowRun + 1 : 0;
       if (lowRun >= 6 && quality !== 'low') {
-        quality = quality === 'high' ? 'medium' : 'low'; lowRun = 0; applyQuality();
+        quality = quality === 'high' ? 'medium' : 'low'; lowRun = 0; dynScale = 1; applyQuality();
         ui.toast(t('qualityAuto', { q: t(`q_${quality}` as TextKey) }));
       }
     }
