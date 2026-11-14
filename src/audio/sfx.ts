@@ -30,7 +30,23 @@ function tone(freq: number, dur: number, type: OscillatorType = 'sine', vol = 0.
   osc.stop(t0 + dur + 0.02);
 }
 
+function noise(dur: number, freq: number, vol: number, type: BiquadFilterType = 'lowpass', delay = 0): void {
+  if (!ctx || !master) return;
+  const n = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.min(1, i / 2000) * Math.min(1, (n - i) / 6000);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+  const g = ctx.createGain(); g.gain.value = vol;
+  src.connect(f).connect(g).connect(master);
+  src.start(ctx.currentTime + delay);
+}
+
 export const sfx = {
+  engine: () => noise(8.4, 380, 0.9),
+  thud: () => { tone(70, 0.5, 'sine', 0.9, 28); noise(0.6, 500, 0.5); },
+  hiss: () => noise(1.6, 3500, 0.3, 'highpass'),
   click: () => tone(660, 0.06, 'square', 0.15),
   fix: () => { tone(440, 0.08, 'square', 0.25); tone(660, 0.08, 'square', 0.25, 660, 0.09); tone(880, 0.14, 'square', 0.25, 880, 0.18); },
   build: () => { tone(220, 0.12, 'triangle', 0.5, 330); tone(440, 0.2, 'triangle', 0.4, 660, 0.12); },

@@ -28,6 +28,7 @@ const isBuilding = (type: ModuleType): type is 'habitat' | 'shelter' => type ===
 // Keeps the 3D base in step with the sim's module list. Owns buildings, doors, markers, the build ghost and meteors.
 export class World {
   buildings: BuildingView[] = [];
+  extraBlockers: Blocker[] = []; // things added by the intro, such as the parked lander
   markersHidden = false; // the close-up work mode hides the floating markers
   private views = new Map<number, ModuleView>();
   private ghost: THREE.Group | null = null;
@@ -76,6 +77,7 @@ export class World {
     for (const v of this.buildings) this.blockers.push(v.blocker);
     for (const m of sim.modules) if (!isBuilding(m.type)) this.blockers.push({ x: m.x, z: m.z, r: this.cfg.modules[m.type].radius });
     this.blockers.push({ x: this.cfg.rockPile.x, z: this.cfg.rockPile.z, r: this.cfg.rockPile.radius });
+    for (const b of this.extraBlockers) this.blockers.push(b);
   }
 
   // Which building (index) a point is inside, or -1.

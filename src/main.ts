@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { createTerrain } from './render/terrain';
+import { createTerrain, createFarGround } from './render/terrain';
+import { Intro, createLander, LANDER_AT } from './game/intro';
 import { createStars, createEarth, createSun } from './render/sky';
 import { createInput } from './game/input';
 import { Player, type Blocker } from './game/player';
@@ -50,7 +51,7 @@ sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
 scene.add(new THREE.HemisphereLight(0x223355, 0x111111, 0.45));
 const sunDisc = createSun();
-scene.add(createTerrain(), createStars(), createEarth(), sunDisc);
+scene.add(createFarGround(), createTerrain(), createStars(), createEarth(), sunDisc);
 const SUN_DIR = new THREE.Vector3(60, 45, 30).normalize();
 const SUN_CALM = new THREE.Color(0xfff4e0), SUN_STORM = new THREE.Color(0xff8a4a);
 
@@ -75,7 +76,7 @@ const input = createInput(canvas);
 const player = new Player(camera, blockers);
 const runner = new TaskRunner();
 const keys = new Set<string>();
-if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
 
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }
@@ -313,6 +314,7 @@ function seqPress(n: number): void {
 
 addEventListener('keydown', (e) => {
   unlockAudio();
+  if (intro) { if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') endIntro(); return; }
   if (e.code === 'Tab') e.preventDefault();
   if (work && !ui.blocking()) {
     if (e.code === 'Escape') { leaveWork(); return; }
@@ -359,6 +361,8 @@ document.addEventListener('pointerlockchange', () => {
 // Desktop: with the mouse captured, a click places the module.
 canvas.addEventListener('mousedown', () => { if (placing && document.pointerLockElement === canvas) byId('placeBtn').click(); });
 addEventListener('pointerdown', unlockAudio);
+byId('introSkip').addEventListener('click', () => endIntro());
+byId('introUi').addEventListener('pointerdown', () => { if (intro && intro.t > 1.5) endIntro(); });
 
 function resize(): void {
   const w = innerWidth, h = innerHeight;
@@ -375,14 +379,77 @@ hintEl.textContent = t('hintDesktop');
 canvas.addEventListener('touchstart', () => { hintEl.textContent = t('hintTouch'); }, { once: true });
 let hintTimer = 25;
 
-ui.card({
-  title: t('tutorialTitle'),
-  paragraphs: [t('tutorialBody')],
-  list: [t('tut1'), t('tut2'), t('tut3'), t('tut4'), t('tut5')],
-  button: t('btnStart'),
-  onClose: unlockAudio,
-  extra: [{ label: t('btnLang'), onClick: switchLanguage }],
-});
+function showTutorial(): void {
+  ui.card({
+    title: t('tutorialTitle'),
+    paragraphs: [t('tutorialBody')],
+    list: [t('tut1'), t('tut2'), t('tut3'), t('tut4'), t('tut5')],
+    button: t('btnStart'),
+    onClose: unlockAudio,
+    extra: [{ label: t('btnLang'), onClick: switchLanguage }],
+  });
+}
+
+// ---- Opening cinematic ----
+let intro: Intro | null = null;
+const fadeEl = byId('fade'), titleEl = byId('introTitle');
+(titleEl.querySelector('b') as HTMLElement).textContent = t('introTitle');
+(titleEl.querySelector('span') as HTMLElement).textContent = t('introTag');
+byId('introSkip').textContent = t('btnSkip2');
+
+function startIntro(): void {
+  unlockAudio();
+  const hab = world.buildings.find((b) => b.type === 'habitat')!;
+  const lights: THREE.PointLight[] = [];
+  hab.b.group.traverse((o) => { if (o instanceof THREE.PointLight) lights.push(o); });
+  document.body.classList.add('intro');
+  crew.members.forEach((m) => { m.model.group.visible = false; });
+  intro = new Intro({
+    scene, camera, habLights: lights,
+    say: (key) => ui.subtitle('', t(key), 5),
+    showTitle: (on) => titleEl.classList.toggle('on', on),
+    setFade: (o) => { fadeEl.style.opacity = String(o); },
+    fx: { engine: () => sfx.engine(), thud: () => sfx.thud(), hiss: () => sfx.hiss(), click: () => sfx.click() },
+  });
+}
+
+// Ends the cinematic (it finished or was skipped): park the lander, show the crew and hand over inside the station.
+function endIntro(): void {
+  if (!intro) return;
+  intro.finish();
+  const lander = intro.lander;
+  world.extraBlockers.push({ x: LANDER_AT.x, z: LANDER_AT.z, r: 2.4 });
+  world.sync(sim);
+  intro = null;
+  document.body.classList.remove('intro');
+  crew.members.forEach((m) => { m.model.group.visible = true; });
+  void lander;
+  player.pos.set(0, 0, 1.5); player.yaw = 0; player.pitch = 0;
+  player.update(0, input.state);
+  ui.subtitle('', '', 0);
+  showTutorial();
+}
+
+const skipIntroNow = params.has('skip') || params.has('nointro') || params.has('judge');
+if (skipIntroNow) {
+  const l = createLander();
+  l.group.position.set(LANDER_AT.x, 0, LANDER_AT.z); l.group.remove(l.flame, l.light); l.hatch.rotation.z = -1.7; l.ladder.visible = true;
+  scene.add(l.group);
+  world.extraBlockers.push({ x: LANDER_AT.x, z: LANDER_AT.z, r: 2.4 });
+  world.sync(sim);
+  showTutorial();
+} else {
+  ui.card({
+    title: t('introTitle'),
+    paragraphs: [t('introWelcome')],
+    button: t('btnPlayIntro'),
+    onClose: () => startIntro(),
+    extra: [
+      { label: t('btnSkipIntro'), onClick: () => { byId('overlay').classList.remove('on'); unlockAudio(); const l = createLander(); l.group.position.set(LANDER_AT.x, 0, LANDER_AT.z); l.group.remove(l.flame, l.light); l.hatch.rotation.z = -1.7; l.ladder.visible = true; scene.add(l.group); world.extraBlockers.push({ x: LANDER_AT.x, z: LANDER_AT.z, r: 2.4 }); world.sync(sim); player.pos.set(0, 0, 1.5); showTutorial(); } },
+      { label: t('btnLang'), onClick: switchLanguage },
+    ],
+  });
+}
 
 function handleEvents(): void {
   for (const e of sim.outbox) {
@@ -577,7 +644,8 @@ renderer.setAnimationLoop((now) => {
   const rawDt = (now - last) / 1000;
   last = now;
   const dt = Math.min(rawDt, 0.05);
-  const paused = ui.blocking() || sim.status !== 'running';
+  const paused = ui.blocking() || sim.status !== 'running' || !!intro;
+  if (intro) { intro.update(dt); if (intro.done) endIntro(); }
 
   if (ffMul > 1 && urgent()) { ffMul = 1; byId('btnFF').classList.remove('on'); }
   const reps = paused ? 0 : ffMul;

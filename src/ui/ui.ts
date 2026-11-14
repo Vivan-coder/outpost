@@ -355,7 +355,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     // Subtitle line for what the crew say, so it can be read even when they are far away.
     subtitle(name: string, text: string, seconds: number): void {
       const box = $('subtitle');
-      box.replaceChildren(el('b', '', name), document.createTextNode(': ' + text));
+      if (name) box.replaceChildren(el('b', '', name), document.createTextNode(': ' + text));
+      else box.replaceChildren(document.createTextNode(text));
       box.style.display = 'block';
       clearTimeout(subTimer);
       subTimer = window.setTimeout(() => { box.style.display = 'none'; }, seconds * 1000);

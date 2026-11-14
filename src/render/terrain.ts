@@ -45,6 +45,13 @@ export function heightAt(x: number, z: number): number {
   return h;
 }
 
+// A huge dark disc under the terrain, so the edge of the playable ground never shows against the sky.
+export function createFarGround(): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.CircleGeometry(4000, 24), new THREE.MeshBasicMaterial({ color: 0x2b2a28 }));
+  m.rotation.x = -Math.PI / 2; m.position.y = -1.2;
+  return m;
+}
+
 export function createTerrain(): THREE.Mesh {
   const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, SEGMENTS, SEGMENTS);
   geo.rotateX(-Math.PI / 2);

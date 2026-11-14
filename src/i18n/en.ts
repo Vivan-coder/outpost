@@ -376,6 +376,18 @@ export const en = {
   tool_shears: 'Shears',
   ws_harvested: 'Harvested! +{n} food.',
   ws_simplified: 'Simplified for kids: real station repairs follow checklists like this.',
+  intro_1: 'Day 1. The Outpost crew is arriving at the Moon.',
+  intro_2: 'Landing burn. Engine at full thrust.',
+  intro_3: 'Touchdown! We are on the Moon.',
+  intro_4: 'Hatch open. First steps outside, one at a time.',
+  intro_5: 'Gravity on the Moon is only 0.165 times Earth’s. Every step feels light.',
+  intro_6: 'Into the station. Airlock cycling, lights on.',
+  introTitle: 'OUTPOST',
+  introTag: 'Keep your crew alive until the rescue ship arrives.',
+  introWelcome: 'A Moon base for young astronauts. Fix machines with your own hands, grow food, and survive a real solar storm.',
+  btnPlayIntro: 'Play',
+  btnSkipIntro: 'Skip the intro',
+  btnSkip2: 'Skip ▸',
 } as const;
 
 export type TextKey = keyof typeof en;

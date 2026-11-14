@@ -46,6 +46,14 @@
     #hotbar button small { position: absolute; top: 1px; left: 4px; font-size: 10px; font-weight: 800; opacity: .8; }
     #hotbar button.on { border-color: var(--accent); background: #3a3010cc; } #hotbar button.need { animation: pulse2 .9s ease-in-out infinite; box-shadow: 0 0 14px var(--accent); }
     @keyframes pulse2 { 50% { transform: scale(1.12); } }
+    #introUi { position: fixed; inset: 0; display: none; pointer-events: none; z-index: 5; }
+    body.intro #introUi { display: block; } body.intro #hud, body.intro #left, body.intro #buttons, body.intro #hint, body.intro #banner, body.intro #marks, body.intro #cross, body.intro #dot, body.intro #prompt, body.intro #toasts, body.intro #fps { display: none !important; }
+    #introUi .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; } #introUi .top { top: 0; } #introUi .bottom { bottom: 0; }
+    #fade { position: absolute; inset: 0; background: #000; opacity: 1; }
+    #introTitle { position: absolute; left: 0; right: 0; top: 38%; text-align: center; opacity: 0; transition: opacity 1.2s; } #introTitle.on { opacity: 1; }
+    #introTitle b { display: block; font-size: min(14vw, 96px); letter-spacing: .25em; color: #fff; text-shadow: 0 0 30px #7fb0ff; } #introTitle span { font-size: min(4vw, 20px); color: #ffd24a; }
+    #introSkip { position: absolute; right: var(--sr); bottom: calc(9vh + 12px); pointer-events: auto; background: #000a; border: 1px solid #fff6; border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 700; }
+    body.intro #subtitle { bottom: calc(9vh + 60px); }
     #subtitle { position: fixed; left: 50%; bottom: calc(var(--sb) + 150px); transform: translateX(-50%); width: min(86vw, 560px); display: none; box-sizing: border-box;
       background: #0b1220ee; border: 1px solid #7fb0ff; border-radius: 14px; padding: 9px 14px; font-size: 14px; line-height: 1.35; text-align: center; pointer-events: none; }
     #subtitle b { color: #ffd24a; }
@@ -168,6 +176,12 @@
   <div id="marks"></div>
   <div id="popups"></div>
   <div id="subtitle"></div>
+  <div id="introUi">
+    <div class="bar top"></div><div class="bar bottom"></div>
+    <div id="introTitle"><b></b><span></span></div>
+    <button id="introSkip"></button>
+    <div id="fade"></div>
+  </div>
   <div id="work">
     <div id="workTop"><b id="workTitle"></b><span id="workStep"></span><button id="workBack"></button></div>
     <div id="workHint"></div>
