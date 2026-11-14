@@ -11,7 +11,7 @@ const BOUND = TERRAIN_SIZE / 2 - 4;
 export interface Blocker { x: number; z: number; r: number }
 
 export class Player {
-  pos = new THREE.Vector3(0, 0, 14);
+  pos = new THREE.Vector3(0, 0, 20);
   yaw = 0;
   pitch = 0;
   private vy = 0;
