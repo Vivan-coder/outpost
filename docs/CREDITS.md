@@ -38,7 +38,12 @@ No NASA images or videos are used.
 
 ## Third-party assets
 
-None. All 3D models are built from primitives in code, and all sounds are synthesised at runtime with WebAudio. There are no image, model or audio files in the game.
+All 3D models are built from primitives in code, and all sounds are synthesised at runtime with WebAudio. The only outside assets are two CC0 sets from Poly Haven (full details in `docs/ASSETS.md`):
+
+| Asset | Author | URL | Licence |
+|---|---|---|---|
+| Moon 01 (regolith PBR textures) | Greg Zaal, Rico Cilliers, Jenelle van Heerden, Dario Barresi | https://polyhaven.com/a/moon_01 | CC0 |
+| Kloppenheim 02 (Pure Sky) HDRI, used for lighting | Greg Zaal, Jarod Guest | https://polyhaven.com/a/kloppenheim_02_puresky | CC0 |
 
 ## Libraries and tools
 

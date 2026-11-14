@@ -476,4 +476,9 @@ export const ar: Record<TextKey, string> = {
   lbl_power: 'مبنى الطاقة',
   lbl_rocks: 'منطقة عينات الصخور',
   lbl_storage: 'التخزين',
+  btnCredits: 'الشكر والتقدير',
+  creditsTitle: 'الشكر والتراخيص',
+  creditsAssets: 'مواد سطح القمر: "Moon 01" من غريغ زال وريكو كيليرز وجينيل فان هيردن وداريو باريسي، من Poly Haven، ترخيص CC0. إضاءة السماء: "Kloppenheim 02 (Pure Sky)" من غريغ زال وجاريد غيست، من Poly Haven، ترخيص CC0.',
+  creditsData: 'البيانات: DONKI من ناسا، وRadLab وOSDR من ناسا، ومجلة أبولو لسطح القمر. التفاصيل في مختبر بيانات ناسا.',
+  creditsOwn: 'كل النماذج والأصوات والرسوم أصلية ومبنية بالشيفرة. بُنيت باستخدام Three.js (MIT) وVite (MIT). كُتبت الشيفرة بمساعدة الذكاء الاصطناعي (Claude Code).',
 };

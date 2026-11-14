@@ -488,6 +488,10 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       b.focus({ preventScroll: true });
     },
 
+    credits(): void {
+      ui.card({ title: t('creditsTitle'), paragraphs: [t('creditsAssets'), t('creditsData'), t('creditsOwn')], button: t('btnClose') });
+    },
+
     popup(text: string): void {
       const p = el('div', 'popup', text);
       $('popups').appendChild(p);
@@ -594,6 +598,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       menuCard.appendChild(option(4, t('fpsLabel', { s: t(h.fps() ? 'on' : 'off') }), '', '', () => { h.toggleFps(); ui.openPause(); }));
       menuCard.appendChild(option(5, t('btnLang'), '', '', () => h.toggleLanguage()));
       menuCard.appendChild(option(6, t('btnRestart'), '', '', () => h.restart()));
+      menuCard.appendChild(option(7, t('btnCredits'), '', '', () => { closeMenu(); ui.credits(); }));
       menuCard.appendChild(el('p', 'keys', `${t('hintDesktop')} · ${t('menuKeys')}`));
       menu.classList.add('on');
       resume.focus({ preventScroll: true });

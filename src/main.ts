@@ -1,5 +1,11 @@
 import * as THREE from 'three';
-import { createTerrain, createFarGround } from './render/terrain';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { createTerrain, createFarGround, createRocks } from './render/terrain';
 import { Intro, createLander, LANDER_AT } from './game/intro';
 import { createStars, createEarth, createSun } from './render/sky';
 import { createInput } from './game/input';
@@ -52,6 +58,7 @@ sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
 scene.add(new THREE.HemisphereLight(0x223355, 0x111111, 0.45));
 const sunDisc = createSun();
+scene.add(createRocks());
 scene.add(createFarGround(), createTerrain(), createStars(), createEarth(), sunDisc);
 const SUN_DIR = new THREE.Vector3(60, 45, 30).normalize();
 const SUN_CALM = new THREE.Color(0xfff4e0), SUN_STORM = new THREE.Color(0xff8a4a);
@@ -117,11 +124,40 @@ const SHADOW_SIZE: Record<Quality, number> = { low: 512, medium: 1024, high: 204
 function applyQuality(): void {
   sun.castShadow = quality !== 'low';
   sun.shadow.map?.dispose(); sun.shadow.map = null;
+  applyEnvironment();
+  bloomPass.enabled = quality !== 'low';
   sun.shadow.mapSize.set(SHADOW_SIZE[quality], SHADOW_SIZE[quality]);
   resize();
   try { localStorage.setItem('outpost.quality', quality); } catch { /* storage blocked */ }
 }
 let lowRun = 0;
+
+// ---- Image-based lighting from a CC0 sky (Poly Haven), loaded after start-up so it never delays the first frame ----
+let envMap: THREE.Texture | null = null;
+function applyEnvironment(): void {
+  const on = quality !== 'low' && envMap;
+  scene.environment = on ? envMap : null; scene.environmentIntensity = 0.55;
+  workScene.environment = on ? envMap : null; workScene.environmentIntensity = 0.9;
+}
+setTimeout(() => {
+  new RGBELoader().load('assets/sky/kloppenheim_02_puresky_1k.hdr', (tex) => {
+    const pm = new THREE.PMREMGenerator(renderer);
+    envMap = pm.fromEquirectangular(tex).texture;
+    tex.dispose(); pm.dispose();
+    applyEnvironment();
+  });
+}, 400);
+
+// ---- Post-processing (Medium and High): bloom on bright emissives and a soft vignette. Off on Low. ----
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
+const renderPass = new RenderPass(scene, camera);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.3, 0.5, 2.6);
+const vignettePass = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, strength: { value: 0.4 } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'uniform sampler2D tDiffuse; uniform float strength; varying vec2 vUv; void main() { vec4 c = texture2D(tDiffuse, vUv); float d = distance(vUv, vec2(0.5)); c.rgb *= 1.0 - smoothstep(0.38, 0.9, d) * strength; gl_FragColor = c; }',
+});
+composer.addPass(renderPass); composer.addPass(bloomPass); composer.addPass(new OutputPass()); composer.addPass(vignettePass);
 
 // Data cards: the first time the player meets a real dataset it is added to the Mission Log (+2 research).
 const cmeSaid = new Set<number>();
@@ -449,6 +485,7 @@ function resize(): void {
   const w = innerWidth, h = innerHeight;
   renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL_CAP[quality]));
   renderer.setSize(w, h, false);
+  composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
@@ -834,7 +871,8 @@ renderer.setAnimationLoop((now) => {
   sun.target.position.copy(player.pos);
   sun.position.set(player.pos.x + 60, player.pos.y + 45, player.pos.z + 30);
 
-  renderer.render(work ? workScene : scene, camera);
+  if (quality === 'low') renderer.render(work ? workScene : scene, camera);
+  else { renderPass.scene = work ? workScene : scene; composer.render(); }
 
   acc += rawDt; frames++; worst = Math.max(worst, rawDt);
   if (acc >= 0.5) {

@@ -477,6 +477,11 @@ export const en = {
   lbl_power: 'Power building',
   lbl_rocks: 'Rock sample area',
   lbl_storage: 'Storage',
+  btnCredits: 'Credits',
+  creditsTitle: 'Credits and licences',
+  creditsAssets: 'Moon regolith textures: "Moon 01" by Greg Zaal, Rico Cilliers, Jenelle van Heerden and Dario Barresi, from Poly Haven, licence CC0. Sky lighting: "Kloppenheim 02 (Pure Sky)" by Greg Zaal and Jarod Guest, from Poly Haven, licence CC0.',
+  creditsData: 'Data: NASA CCMC DONKI, NASA OSDR RadLab, NASA OSDR, and the Apollo Lunar Surface Journal. Details are in the NASA Data Lab.',
+  creditsOwn: 'All models, sounds and animations are original, built in code. Built with Three.js (MIT) and Vite (MIT). Code written with AI assistance (Claude Code). The helper bot is not built yet.',
 } as const;
 
 export type TextKey = keyof typeof en;

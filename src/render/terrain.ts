@@ -52,6 +52,26 @@ export function createFarGround(): THREE.Mesh {
   return m;
 }
 
+// Rocks of different sizes, instanced so they cost one draw call. Kept away from the base.
+export function createRocks(count = 220): THREE.InstancedMesh {
+  const geo = new THREE.DodecahedronGeometry(1, 0);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x8a8782, roughness: 1, metalness: 0, flatShading: true });
+  const mesh = new THREE.InstancedMesh(geo, mat, count);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+  let n = 0;
+  for (let i = 0; n < count && i < count * 4; i++) {
+    const x = (hash(i, 3.1) - 0.5) * TERRAIN_SIZE * 0.92, z = (hash(i, 8.7) - 0.5) * TERRAIN_SIZE * 0.92;
+    if (Math.hypot(x, z) < 38) continue; // the base area stays clear
+    const s = 0.25 + Math.pow(hash(i, 5.5), 2.2) * 1.8;
+    e.set(hash(i, 1.1) * 6, hash(i, 2.2) * 6, hash(i, 4.4) * 6);
+    q.setFromEuler(e); sc.set(s, s * (0.6 + hash(i, 6.6) * 0.5), s); p.set(x, heightAt(x, z) + s * 0.25, z);
+    m.compose(p, q, sc); mesh.setMatrixAt(n++, m);
+  }
+  mesh.count = n;
+  mesh.castShadow = false; mesh.receiveShadow = true;
+  return mesh;
+}
+
 export function createTerrain(): THREE.Mesh {
   const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, SEGMENTS, SEGMENTS);
   geo.rotateX(-Math.PI / 2);
@@ -60,12 +80,25 @@ export function createTerrain(): THREE.Mesh {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     pos.setY(i, heightAt(x, z));
-    const g = 0.3 + valueNoise(x * 0.3, z * 0.3) * 0.13 + valueNoise(x * 0.03 + 9, z * 0.03) * 0.12;
+    const g = 0.75 + valueNoise(x * 0.3, z * 0.3) * 0.2 + valueNoise(x * 0.03 + 9, z * 0.03) * 0.25;
     colors[i * 3] = g; colors[i * 3 + 1] = g; colors[i * 3 + 2] = g * 1.02;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: true });
+  // Real regolith look: Poly Haven "Moon 01" (CC0): albedo, normal and roughness maps, tiled every few metres.
+  const loader = new THREE.TextureLoader();
+  const tile = (url: string, srgb: boolean) => {
+    const tex = loader.load(url);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(60, 60); tex.anisotropy = 4;
+    if (srgb) tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 1, metalness: 0,
+    map: tile('assets/regolith/moon_01_diff_1k.jpg', true),
+    normalMap: tile('assets/regolith/moon_01_nor_gl_1k.jpg', false), normalScale: new THREE.Vector2(1.4, 1.4),
+    roughnessMap: tile('assets/regolith/moon_01_rough_1k.jpg', false),
+  });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   return mesh;
