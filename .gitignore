@@ -3,3 +3,6 @@ dist
 
 # trailer outputs (videos, raw screen captures): never committed or deployed
 docs/trailer/out/
+
+# drop-in music for the trailer (kept out of git)
+tools/trailer/music-override.*

@@ -14,7 +14,15 @@ const run = (cmd, args) => { const r = spawnSync(cmd, args, { stdio: ['ignore', 
 
 // 1. End card and music (always regenerated so the URL and timeline are current)
 run('node', [path.join(here, 'endcard.mjs'), path.join(out, 'endcard.png')]);
-run('python', [path.join(here, 'music.py'), path.join(root, 'src/trailer/trailer.timeline.json'), path.join(out, 'music.wav')]);
+// Music: your own file if you drop one at tools/trailer/music-override.* (or set "musicFile" in config.json); otherwise the original generated track.
+const cfg = JSON.parse(fs.readFileSync(path.join(here, 'config.json'), 'utf8'));
+const dropped = fs.readdirSync(here).find((f) => /^music-override.(mp3|wav|m4a|ogg|flac|aac)$/i.test(f));
+const custom = cfg.musicFile ? path.resolve(root, cfg.musicFile) : dropped ? path.join(here, dropped) : null;
+if (custom) {
+  console.log('Using your music file:', custom);
+  const start = String(process.env.MUSIC_START ?? cfg.musicStart ?? 0);
+  run(ff, ['-y', '-v', 'error', '-ss', start, '-i', custom, '-t', String(tl.totalSeconds), '-af', `afade=t=in:d=0.4,afade=t=out:st=${tl.totalSeconds - 1.0}:d=1.0`, '-ar', '48000', '-ac', '2', path.join(out, 'music.wav')]);
+} else run('python', [path.join(here, 'music.py'), path.join(root, 'src/trailer/trailer.timeline.json'), path.join(out, 'music.wav')]);
 
 // 2. SRT from the same captions the game shows
 const stamp = (s) => { const ms = Math.round(s * 1000); const p = (n, w = 2) => String(n).padStart(w, '0'); return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`; };

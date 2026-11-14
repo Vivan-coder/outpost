@@ -1,4 +1,5 @@
 {
-  "url": "https://YOUR-SITE.netlify.app",
-  "_note": "Set 'url' to the real Netlify link before the final export. The end card and the QR code use it, and trailer:check fails while it still contains YOUR-SITE."
+  "url": "https://novessa-outpost.netlify.app",
+  "_note": "The Netlify link used by the end card and the QR code. trailer:check fails while it still contains YOUR-SITE.",
+  "musicFile": ""
 }
