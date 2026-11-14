@@ -255,7 +255,7 @@ class SolarRig extends Rig {
       ctx.fillStyle = `rgba(176,140,98,${0.7 + 0.25 * dust})`; ctx.fillRect(0, 0, this.W, this.H);
       for (let n = 0; n < 160; n++) { ctx.fillStyle = `rgba(${120 + Math.random() * 60},${95 + Math.random() * 40},${60 + Math.random() * 30},0.35)`; ctx.beginPath(); ctx.arc(Math.random() * this.W, Math.random() * this.H, 4 + Math.random() * 14, 0, 7); ctx.fill(); }
       const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-      const over = this.hot(new THREE.Mesh(new THREE.PlaneGeometry(1.56, 1.06), new THREE.MeshBasicMaterial({ map: tex, transparent: true })), `dust${i}`);
+      const over = this.hot(new THREE.Mesh(new THREE.PlaneGeometry(1.56, 1.06), new THREE.MeshBasicMaterial({ map: tex, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })), `dust${i}`);
       over.position.set(x, 0.3, 0.08); this.group.add(over);
       this.canvases.push({ ctx, tex, cells: new Array(this.CX * this.CY).fill(false) });
     }
@@ -542,14 +542,12 @@ export class WorkSession {
   }
 
   // Positions the rig in front of the player's eye, facing them, and returns where the camera should be.
-  frame(eye: THREE.Vector3, yaw: number, fovDeg: number, aspect: number): { pos: THREE.Vector3; look: THREE.Vector3 } {
-    const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-    const center = eye.clone().addScaledVector(fwd, 2.4);
-    this.rig.group.position.copy(center);
-    this.rig.group.rotation.y = yaw;
+  frame(fovDeg: number, aspect: number): { pos: THREE.Vector3; look: THREE.Vector3 } {
+    this.rig.group.position.set(0, 0, 0);
+    this.rig.group.rotation.set(0, 0, 0);
     const t = Math.tan((fovDeg * Math.PI) / 360);
     const dist = Math.max(1.3, (this.rig.width / 2) * 1.1 / (t * aspect), (this.rig.height / 2) * 1.1 / t);
-    return { pos: center.clone().addScaledVector(fwd, -dist), look: center };
+    return { pos: new THREE.Vector3(0, 0, dist), look: new THREE.Vector3(0, 0, 0) };
   }
 
   // Colour hint for the port row of the power rig: lets the UI know ports exist as clickable parts.

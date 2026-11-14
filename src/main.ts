@@ -77,7 +77,7 @@ const input = createInput(canvas);
 const player = new Player(camera, blockers);
 const runner = new TaskRunner();
 const keys = new Set<string>();
-if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, testWork: () => selfTestWork(), intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
 
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }
@@ -184,12 +184,31 @@ const ui = createUi(level, {
 });
 
 // ---- Work mode: close-up hands-on tasks ----
+// The machine being worked on is shown on its own stage with its own lights and a plain backdrop. Nothing from the
+// base (walls, props, crew, other machines) is in that scene, so nothing can get in the way. The world is untouched.
+const workScene = new THREE.Scene();
+workScene.background = new THREE.Color(0x0c111b);
+{
+  workScene.add(new THREE.HemisphereLight(0xdfe9ff, 0x1c2330, 1.1));
+  const key = new THREE.DirectionalLight(0xfff0dd, 2.4); key.position.set(2.5, 3.5, 5); workScene.add(key);
+  const rim = new THREE.DirectionalLight(0x7fb0ff, 1.0); rim.position.set(-4, 1, -3); workScene.add(rim);
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d')!; g.fillStyle = '#121a28'; g.fillRect(0, 0, 256, 256); g.strokeStyle = '#1f2c44'; g.lineWidth = 2;
+  for (let i = 0; i <= 256; i += 32) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
+  const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(6, 4); tex.colorSpace = THREE.SRGBColorSpace;
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(24, 16), new THREE.MeshBasicMaterial({ map: tex })); wall.position.z = -3; workScene.add(wall);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(24, 12), new THREE.MeshStandardMaterial({ color: 0x1a2130, roughness: 0.85, metalness: 0.2 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(0, -2.1, 3); workScene.add(floor);
+}
+const workFade = document.getElementById('workFade') as HTMLElement;
+function fadeFromBlack(): void { workFade.style.transition = 'none'; workFade.style.opacity = '1'; requestAnimationFrame(() => requestAnimationFrame(() => { workFade.style.transition = 'opacity .45s'; workFade.style.opacity = '0'; })); }
+// The stage needs a tight depth range, so decals and screens never z-fight.
+function stageCamera(on: boolean): void { camera.near = on ? 0.1 : 0.1; camera.far = on ? 60 : 1200; camera.fov = on ? 52 : 70; camera.updateProjectionMatrix(); }
 let work: WorkSession | null = null;
 let workTarget: TaskTarget | null = null;
 let workDoneAt = 0;
 const sessions = new Map<string, WorkSession>();
 const lastNdc = new THREE.Vector2();
-const lookCur = new THREE.Vector3();
 const workEnv: WorkEnv = {
   plants: sim.plants,
   lampOn: () => sim.lampOn,
@@ -201,27 +220,30 @@ const workFx = { click: () => sfx.click(), ok: () => sfx.part(), wrong: () => sf
 const workKindOf = (tg: TaskTarget): WorkKind | null => (tg.kind === 'repair' ? 'repair' : tg.kind === 'solar' ? 'solar' : tg.kind === 'water' ? 'water' : tg.kind === 'greenhouse' ? 'greenhouse' : null);
 
 function startWork(kind: WorkKind, tg: TaskTarget): void {
-  if (work) scene.remove(work.group);
+  if (work) workScene.remove(work.group);
   const key = `${kind}:${tg.moduleId}`;
   let ses = sessions.get(key);
   if (!ses) { ses = new WorkSession(kind, workEnv, workFx); sessions.set(key, ses); }
   work = ses; workTarget = tg; workDoneAt = 0;
   world.markersHidden = true;
-  scene.add(ses.group);
+  workScene.add(ses.group);
+  stageCamera(true);
+  fadeFromBlack();
   input.enabled = false;
   unlockPointer();
-  lookCur.set(0, 0, 0).copy(camera.position);
   sfx.click();
 }
 
 // Leaving keeps the session, so the steps already done stay done when you come back.
 function leaveWork(): void {
   if (!work) return;
-  scene.remove(work.group);
+  workScene.remove(work.group);
   work = null; workTarget = null;
   world.markersHidden = false;
   input.enabled = true;
-  camera.fov = 70; camera.updateProjectionMatrix();
+  stageCamera(false);
+  fadeFromBlack();
+  player.update(0, input.state);
   ui.setWork(null, isTouch());
 }
 
@@ -229,11 +251,13 @@ function finishWork(): void {
   const tg = workTarget, ses = work;
   if (!tg || !ses) return;
   sessions.delete(`${ses.kind}:${tg.moduleId}`);
-  scene.remove(ses.group);
+  workScene.remove(ses.group);
   work = null; workTarget = null;
   world.markersHidden = false;
   input.enabled = true;
-  camera.fov = 70; camera.updateProjectionMatrix();
+  stageCamera(false);
+  fadeFromBlack();
+  player.update(0, input.state);
   ui.setWork(null, isTouch());
   finishTask(tg, 'done');
   const why = tg.kind === 'solar' ? 'dustPanels' : tg.kind === 'water' ? 'water90' : null;
@@ -241,17 +265,32 @@ function finishWork(): void {
   ui.toast(t('ws_simplified'));
 }
 
+// Debug self-test: enters and leaves every work-mode task and checks the stage is isolated and the world camera comes back exactly.
+function selfTestWork(): string[] {
+  const out: string[] = [];
+  const kinds: [WorkKind, string][] = [['repair', 'solar'], ['solar', 'solar'], ['water', 'tank'], ['greenhouse', 'greenhouse']];
+  for (const [k, type] of kinds) {
+    const m = sim.modules.find((x) => x.type === type)!;
+    const p0 = camera.position.clone(), q0 = camera.quaternion.clone();
+    startWork(k, { kind: k, mini: 'sequence', moduleId: m.id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget);
+    const g = work!.group;
+    const stage = g.parent === workScene && !scene.children.includes(g);
+    const marksHidden = world.markersHidden;
+    const stageKids = workScene.children.length;
+    leaveWork();
+    const back = camera.position.distanceTo(p0) < 1e-3 && camera.quaternion.angleTo(q0) < 1e-3 && camera.near === 0.1 && camera.far === 1200 && !work && g.parent === null;
+    out.push(`${k}: onOwnStage=${stage} markersHidden=${marksHidden} stageObjects=${stageKids} worldRestored=${back}`);
+  }
+  return out;
+}
+
 function workFrame(dt: number): void {
   if (!work) return;
   work.update(dt);
-  const eye = new THREE.Vector3(player.pos.x, player.pos.y + 1.7, player.pos.z);
-  const fov = 52;
-  const f = work.frame(eye, player.yaw, fov, camera.aspect);
-  const k = 1 - Math.exp(-9 * dt);
-  camera.position.lerp(f.pos, k);
-  lookCur.lerp(f.look, k);
+  const f = work.frame(52, camera.aspect);
+  camera.position.copy(f.pos);
+  camera.quaternion.identity();
   camera.lookAt(f.look);
-  camera.fov += (fov - camera.fov) * k; camera.updateProjectionMatrix();
   ui.setWork(work.view(), isTouch());
   if (work.done) { workDoneAt += dt; if (workDoneAt > 0.9) finishWork(); }
 }
@@ -795,7 +834,7 @@ renderer.setAnimationLoop((now) => {
   sun.target.position.copy(player.pos);
   sun.position.set(player.pos.x + 60, player.pos.y + 45, player.pos.z + 30);
 
-  renderer.render(scene, camera);
+  renderer.render(work ? workScene : scene, camera);
 
   acc += rawDt; frames++; worst = Math.max(worst, rawDt);
   if (acc >= 0.5) {

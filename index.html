@@ -30,6 +30,7 @@
     .mark { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; margin: -14px 0 0 -40px; width: 80px; --c: #fff; }
     .mark i { font-style: normal; color: var(--c); font-size: 18px; line-height: 18px; text-shadow: 0 0 6px #000; }
     .mark span { font-size: 10px; font-weight: 800; color: #fff; background: #000a; border: 1px solid var(--c); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+    #workFade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 4; }
     #work { position: fixed; inset: 0; display: none; pointer-events: none; }
     body.working #work { display: block; } body.working #hud, body.working #left, body.working #buttons, body.working #hint, body.working #banner, body.working #marks, body.working #cross, body.working #dot, body.working #prompt, body.working #shelterBtn, body.working #toasts { display: none !important; }
     #workTop { position: absolute; top: var(--st); left: 50%; transform: translateX(-50%); width: min(92vw, 560px); display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid #7fb0ff; border-radius: 12px; padding: 8px 12px; pointer-events: auto; box-sizing: border-box; }
@@ -192,6 +193,7 @@
     <button id="introSkip"></button>
     <div id="fade"></div>
   </div>
+  <div id="workFade"></div>
   <div id="work">
     <div id="workTop"><b id="workTitle"></b><span id="workStep"></span><button id="workBack"></button></div>
     <div id="workHint"></div>
