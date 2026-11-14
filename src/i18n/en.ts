@@ -463,6 +463,20 @@ export const en = {
   on: 'on',
   off: 'off',
   qualityAuto: 'The frame rate was low, so quality was lowered to {q}.',
+  zone_control: 'CONTROL ROOM',
+  zone_engineering: 'ENGINEERING',
+  zone_life: 'LIFE SUPPORT',
+  zone_galley: 'GALLEY',
+  zone_medical: 'MEDICAL AND EXERCISE',
+  lbl_lockers: 'AIRLOCK · Suit lockers',
+  lbl_tools: 'Tool rack',
+  lbl_spares: 'Spare parts',
+  lbl_foodlocker: 'Food storage',
+  lbl_pad: 'Landing pad',
+  lbl_solarfield: 'Solar field',
+  lbl_power: 'Power building',
+  lbl_rocks: 'Rock sample area',
+  lbl_storage: 'Storage',
 } as const;
 
 export type TextKey = keyof typeof en;

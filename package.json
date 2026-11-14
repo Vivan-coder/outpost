@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host"
+    "build": "npm run validate-layout && tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "validate-layout": "node scripts/validate-layout.ts"
   },
   "dependencies": {
     "three": "^0.187.0"

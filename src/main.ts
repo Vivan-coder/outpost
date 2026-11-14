@@ -10,7 +10,7 @@ import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './g
 import { WorkSession, type WorkEnv } from './game/work';
 import type { WorkKind } from './data/workTasks';
 import { harvestPlant, HARVEST_FOOD, assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
-import { STATION, TASK_SPOT } from './game/layout';
+import { STATION_SPOTS, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi, factText } from './ui/ui';
 import { cardInfo, researchFor, type CardId } from './ui/cards';
@@ -344,8 +344,8 @@ function pickTarget(): Target | null {
     consider(m.x + spot.x, m.z + spot.z, 2.2, 1.4, 0, () => ({ type: 'task', name: modName(m.type), task: mk(def.id, def.mini, m.id, job.id, m.x + spot.x, m.z + spot.z, 2.2) }));
   }
   const hab = world.buildings.find((v) => v.type === 'habitat');
-  if (hab) consider(hab.x + STATION.engineering.x, hab.z + STATION.engineering.z + 1.2, 2.4, 1.4, 0.2, () => ({ type: 'console' }));
-  if (hab) consider(hab.x + STATION.weather.x, hab.z + STATION.weather.z + 1.2, 2.4, 1.4, 0.25, () => ({ type: 'weather' }));
+  if (hab) consider(hab.x + STATION_SPOTS.engineering.x, hab.z + STATION_SPOTS.engineering.z, 2.4, 1.4, 0.2, () => ({ type: 'console' }));
+  if (hab) consider(hab.x + STATION_SPOTS.weather.x, hab.z + STATION_SPOTS.weather.z, 2.4, 1.4, 0.25, () => ({ type: 'weather' }));
   const door = world.doorNear(px, pz);
   if (door) consider(door.x, door.z + door.r, 2.6, 1.6, 0.5, () => ({ type: 'door', view: door }));
   const safeTalk = !sim.storm || (sim.storm.phase === 'active' && sim.playerExposure === 0);
@@ -686,7 +686,7 @@ function updateMarks(): void {
   }
   const cheapest = Math.min(...(['engineering', 'solar', 'lifeSupport', 'greenhouse', 'battery', 'tank', 'station'] as const).map((k) => upgradeCost(sim, level, k) ?? 99));
   const hab = world.buildings.find((v) => v.type === 'habitat');
-  if (hab && sim.research >= cheapest) add('con', t('btnAct_console'), '#7fe0ff', hab.x + STATION.engineering.x, 2.4, hab.z + STATION.engineering.z, 3);
+  if (hab && sim.research >= cheapest) add('con', t('btnAct_console'), '#7fe0ff', hab.x + STATION_SPOTS.engineering.x, 2.4, hab.z + STATION_SPOTS.engineering.z, 3);
   if (sim.storm) { const sh = world.buildings.find((v) => v.type === 'shelter'); if (sh && sim.playerExposure > 0) add('shl', t('lbl_shelter'), '#6be08a', sh.x, 3.5, sh.z, 2); }
   ui.setMarks(items);
 }

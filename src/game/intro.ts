@@ -6,7 +6,7 @@ import type { TextKey } from '../i18n/en';
 // Opening cinematic, all in engine: the lander comes down, kicks up dust, touches down, the crew climb out,
 // walk to the station and go in. Skippable. About 36 seconds.
 export const LANDER_AT = { x: 16, z: 28 };
-const DOOR = { x: 0, z: 6.9 };
+const DOOR = { x: 0, z: 7.3 };
 const SUITS = [0xff8a3d, 0x4fc3e8, 0xc77dff];
 const ease = (u: number) => u * u * (3 - 2 * u);
 const clamp01 = (u: number) => Math.max(0, Math.min(1, u));

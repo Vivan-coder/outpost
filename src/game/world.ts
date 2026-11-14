@@ -3,9 +3,12 @@ import type { LevelConfig, ModuleType, SimState } from '../sim/sim.ts';
 import { createModuleModel, createRockPile } from '../render/models';
 import { createBuilding, createMarker, createTag, type Building } from '../render/building';
 import { heightAt } from '../render/terrain';
+import { caps } from '../sim/sim.ts';
+import { CONTAINERS, LANDER_PAD, MODULE_POS, SHELTER_AT, STATION_R } from '../data/layout';
+import { t, type TextKey } from '../i18n/en';
 import type { Blocker } from './collide';
 
-interface ModuleView { group: THREE.Group; alert: THREE.Sprite; job: THREE.Sprite; top: number; ring: THREE.Mesh; badge: ReturnType<typeof createTag> }
+interface ModuleView { group: THREE.Group; alert: THREE.Sprite; job: THREE.Sprite; top: number; ring: THREE.Mesh; badge: ReturnType<typeof createTag>; fill?: THREE.Mesh }
 
 // Upgrade levels show as a glowing ring on the ground and an Mk label: cyan for Mk2, gold for Mk3.
 const RING = [0x000000, 0x4fd8ff, 0xffc840];
@@ -44,6 +47,65 @@ export class World {
     const r = cfg.rockPile;
     rocks.position.set(r.x, heightAt(r.x, r.z), r.z);
     scene.add(rocks);
+    this.buildOutdoors();
+  }
+
+  // Outdoor scenery from the layout data: landing pad, storage containers, path markers and conduits.
+  private buildOutdoors(): void {
+    const std = (c: number, e = 0, o: THREE.MeshStandardMaterialParameters = {}) => new THREE.MeshStandardMaterial({ color: c, emissive: e, roughness: 0.7, metalness: 0.3, flatShading: true, ...o });
+    const put = (m: THREE.Object3D, x: number, z: number, dy = 0) => { m.position.set(x, heightAt(x, z) + dy, z); this.scene.add(m); return m; };
+    const tag = (key: TextKey, x: number, z: number, y: number, color = '#ffffff') => { const g = createTag(); g.set(t(key), color); g.sprite.position.set(x, heightAt(x, z) + y, z); g.sprite.scale.multiplyScalar(1.5); this.scene.add(g.sprite); };
+    // landing pad: a flat ring with a lit edge
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(LANDER_PAD.r, LANDER_PAD.r, 0.1, 24), std(0x39404a));
+    put(pad, LANDER_PAD.x, LANDER_PAD.z, 0.05);
+    const padRing = new THREE.Mesh(new THREE.TorusGeometry(LANDER_PAD.r, 0.08, 6, 32), std(0xf2b632, 0xf2b632)); padRing.rotation.x = Math.PI / 2;
+    put(padRing, LANDER_PAD.x, LANDER_PAD.z, 0.14);
+    tag('lbl_pad', LANDER_PAD.x, LANDER_PAD.z, 3.2, '#ffd24a');
+    // storage containers
+    CONTAINERS.forEach((c) => {
+      const cont = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.6, 1.6), std(0x586a8a)); cont.castShadow = true; cont.receiveShadow = true;
+      put(cont, c.x, c.z, 0.8);
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.62, 0.2, 1.62), std(0xf2b632)); put(stripe, c.x, c.z, 1.2);
+      this.extraBlockers.push({ x: c.x, z: c.z, r: c.r });
+    });
+    tag('lbl_storage', CONTAINERS[0].x, CONTAINERS[0].z, 2.6);
+    tag('lbl_solarfield', MODULE_POS.solar.x, MODULE_POS.solar.z, 4.4, '#9fd0ff');
+    tag('lbl_power', MODULE_POS.battery.x, MODULE_POS.battery.z, 3.4, '#ffd24a');
+    tag('lbl_rocks', this.cfg.rockPile.x, this.cfg.rockPile.z, 3.2);
+    // path markers: amber posts every 4 m from the station door to the pad, the shelter and the solar field
+    const post = (x: number, z: number) => {
+      const p = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.8, 6), std(0x39404a)); pole.position.y = 0.4; p.add(pole);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), std(0xffb040, 0xffa020)); lamp.position.y = 0.85; p.add(lamp);
+      put(p, x, z);
+    };
+    const path = (x1: number, z1: number, x2: number, z2: number) => {
+      const len = Math.hypot(x2 - x1, z2 - z1), n = Math.floor(len / 4);
+      for (let i = 1; i <= n; i++) { const u = (i * 4) / len; const px = x1 + (x2 - x1) * u, pz = z1 + (z2 - z1) * u; post(px - (z2 - z1) / len * 1.4, pz + (x2 - x1) / len * 1.4); }
+    };
+    const dz = STATION_R + 1.5;
+    path(0, dz, LANDER_PAD.x - 2, LANDER_PAD.z - 3);
+    path(2, dz, SHELTER_AT.x - 3, SHELTER_AT.z + 2);
+    path(-2, dz - 1, MODULE_POS.solar.x + 2, MODULE_POS.solar.z + 3);
+    // conduits: power (yellow) and water (blue) from the station wall to the machines, laid in short pieces that follow the ground
+    const conduit = (x1: number, z1: number, x2: number, z2: number, color: number) => {
+      const len = Math.hypot(x2 - x1, z2 - z1), n = Math.max(1, Math.round(len / 2));
+      for (let i = 0; i < n; i++) {
+        const a = new THREE.Vector3(x1 + (x2 - x1) * (i / n), 0, z1 + (z2 - z1) * (i / n)); a.y = heightAt(a.x, a.z) + 0.12;
+        const b = new THREE.Vector3(x1 + (x2 - x1) * ((i + 1) / n), 0, z1 + (z2 - z1) * ((i + 1) / n)); b.y = heightAt(b.x, b.z) + 0.12;
+        const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, a.distanceTo(b) + 0.04, 6), std(color, color, { emissiveIntensity: 0.2 }));
+        seg.position.copy(a).add(b).multiplyScalar(0.5);
+        seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+        this.scene.add(seg);
+      }
+    };
+    const edge = (x: number, z: number) => { const d = Math.hypot(x, z) || 1; return { x: (x / d) * (STATION_R + 0.1), z: (z / d) * (STATION_R + 0.1) }; };
+    const toward = (x: number, z: number, r: number) => { const d = Math.hypot(x, z) || 1; return { x: x - (x / d) * (r + 0.3), z: z - (z / d) * (r + 0.3) }; };
+    for (const [k, color] of [['solar', 0xf2c832], ['battery', 0xf2c832], ['greenhouse', 0xf2c832], ['lifeSupport', 0xf2c832], ['tank', 0x4fa8ff], ['lifeSupport', 0x4fa8ff]] as const) {
+      const p = MODULE_POS[k]; const e = edge(p.x, p.z); const m = toward(p.x, p.z, k === 'solar' ? 1.8 : k === 'greenhouse' ? 2.6 : k === 'tank' ? 1.6 : k === 'lifeSupport' ? 1.5 : 1.2);
+      const off = color === 0x4fa8ff ? 0.35 : 0;
+      conduit(e.x + off, e.z - off, m.x + off, m.z - off, color);
+    }
   }
 
   sync(sim: SimState): void {
@@ -70,8 +132,15 @@ export class World {
       const badge = createTag();
       badge.sprite.position.y = TOP[m.type] + 1.1; badge.sprite.visible = false;
       group.add(ring, badge.sprite);
+      let fill: THREE.Mesh | undefined;
+      if (m.type === 'battery' || m.type === 'tank') {
+        const geo = new THREE.BoxGeometry(0.14, 1.0, 0.06); geo.translate(0, 0.5, 0);
+        fill = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: m.type === 'battery' ? 0xffd24a : 0x5ad1ff, emissive: m.type === 'battery' ? 0xffd24a : 0x5ad1ff, emissiveIntensity: 0.8 }));
+        fill.position.set(0, 0.35, m.type === 'battery' ? 0.64 : 0.9);
+        group.add(fill);
+      }
       this.scene.add(group);
-      this.views.set(m.id, { group, alert, job, top: TOP[m.type], ring, badge });
+      this.views.set(m.id, { group, alert, job, top: TOP[m.type], ring, badge, fill });
     }
     this.blockers.length = 0;
     for (const v of this.buildings) this.blockers.push(v.blocker);
@@ -111,6 +180,18 @@ export class World {
       if (lvl > 1) { (v.ring.material as THREE.MeshBasicMaterial).color.setHex(RING[lvl - 1]); v.badge.set(`Mk${lvl}`, lvl > 2 ? '#ffd24a' : '#9fe8ff'); }
     }
 
+    // Storage you can see: gauges and crates follow the meters
+    const cap = caps(sim, this.cfg);
+    const airF = Math.max(0.02, sim.air / cap.air), foodF = Math.max(0.02, sim.food / cap.food), powF = Math.max(0.02, sim.power / cap.power);
+    for (const v of this.buildings) {
+      v.b.fills.air.forEach((m) => { m.scale.y = airF; });
+      v.b.fills.food.forEach((m) => { m.scale.y = foodF; });
+      v.b.fills.crates.forEach((m, i) => { m.visible = i < sim.parts; });
+    }
+    for (const m of sim.modules) {
+      const v = this.views.get(m.id);
+      if (v?.fill) v.fill.scale.y = m.type === 'battery' ? powF : airF;
+    }
     for (const v of this.buildings) {
       // Doors open by themselves for the crew, so nobody is ever locked out in a storm.
       const dz = v.z + v.r;

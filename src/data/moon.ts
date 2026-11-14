@@ -1,6 +1,7 @@
 import type { LevelConfig } from '../sim/sim.ts';
 import { buildStorms, type SolarEvent } from './stormTimeline.ts';
 import { baselineMeterRate } from './apollo.ts';
+import { MODULE_POS, ROCK_PILE, SHELTER_AT } from './layout.ts';
 import solarEventJson from './solar-event.json' with { type: 'json' };
 
 export const solarEvent = solarEventJson as SolarEvent;
@@ -34,7 +35,7 @@ export const moon: LevelConfig = {
   wearAfter: 100,
   wearPerSecond: 0.0016,
   modules: {
-    habitat: { cost: 0, radius: 5.5, power: 0, air: 0, food: 0, powerCap: 0, airCap: 0 },
+    habitat: { cost: 0, radius: 7, power: 0, air: 0, food: 0, powerCap: 0, airCap: 0 },
     shelter: { cost: 0, radius: 4.5, power: 0, air: 0, food: 0, powerCap: 0, airCap: 0 },
     solar: { cost: 2, radius: 1.8, power: 0.3, air: 0, food: 0, powerCap: 0, airCap: 0 },
     battery: { cost: 2, radius: 1.2, power: 0, air: 0, food: 0, powerCap: 50, airCap: 0 },
@@ -76,14 +77,14 @@ export const moon: LevelConfig = {
   ],
   startModules: [
     { type: 'habitat', x: 0, z: 0 },
-    { type: 'shelter', x: 15, z: 11 },
-    { type: 'solar', x: -14, z: 6 },
-    { type: 'lifeSupport', x: 12, z: -3 },
-    { type: 'greenhouse', x: -12, z: -9 },
-    { type: 'tank', x: 8, z: -9 },
-    { type: 'battery', x: -9, z: 12 },
+    { type: 'shelter', ...SHELTER_AT },
+    { type: 'solar', ...MODULE_POS.solar },
+    { type: 'lifeSupport', ...MODULE_POS.lifeSupport },
+    { type: 'greenhouse', ...MODULE_POS.greenhouse },
+    { type: 'tank', ...MODULE_POS.tank },
+    { type: 'battery', ...MODULE_POS.battery },
   ],
-  rockPile: { x: 3, z: -14, radius: 1.6 },
+  rockPile: ROCK_PILE,
   storms: buildStorms(solarEvent, {
     windowStart: 240,
     windowEnd: 540,

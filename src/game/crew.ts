@@ -97,9 +97,9 @@ export class Crew {
     switch (name) {
       case 'galley': {
         const a = 0.6 + i * 2.1; // seats around the table
-        return this.inside('habitat', { x: STATION.canteen.x + Math.sin(a) * 1.3, z: STATION.canteen.z + Math.cos(a) * 1.3 }, name, 'break');
+        return this.inside('habitat', { x: STATION.canteen.x + Math.sin(a) * 1.4, z: STATION.canteen.z + Math.cos(a) * 1.4 }, name, 'break');
       }
-      case 'tablet': return this.inside('habitat', { x: STATION.control.x + 1.3 * (i - 1) + 0.6, z: STATION.control.z + 1.4 }, name, 'tablet');
+      case 'tablet': return this.inside('habitat', { x: (i - 1) * 0.9, z: -3.0 }, name, 'tablet');
       case 'exercise': return this.inside('habitat', TASK_SPOT.exercise, name, 'exercising');
       case 'window': return this.inside('habitat', { x: STATION.window.x + (i - 1) * 1.2, z: STATION.window.z }, name, 'window');
       case 'shelter': {
