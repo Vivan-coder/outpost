@@ -20,7 +20,8 @@ const dropped = fs.readdirSync(here).find((f) => /^music-override.(mp3|wav|m4a|o
 const custom = cfg.musicFile ? path.resolve(root, cfg.musicFile) : dropped ? path.join(here, dropped) : null;
 if (custom) {
   console.log('Using your music file:', custom);
-  const start = String(process.env.MUSIC_START ?? cfg.musicStart ?? 0);
+  let start = String(process.env.MUSIC_START ?? cfg.musicStart ?? 'auto');
+  if (start === 'auto') { const { pickStart } = await import('./pickstart.mjs'); const best = pickStart(custom); start = String(best[0].start); console.log('Best part of the song starts at', start, 's (the build-up peaks on the storm hit). Others:', best.slice(1).map((b) => b.start).join(', ')); }
   run(ff, ['-y', '-v', 'error', '-ss', start, '-i', custom, '-t', String(tl.totalSeconds), '-af', `afade=t=in:d=0.4,afade=t=out:st=${tl.totalSeconds - 1.0}:d=1.0`, '-ar', '48000', '-ac', '2', path.join(out, 'music.wav')]);
 } else run('python', [path.join(here, 'music.py'), path.join(root, 'src/trailer/trailer.timeline.json'), path.join(out, 'music.wav')]);
 
