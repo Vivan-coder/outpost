@@ -63,6 +63,17 @@ function box(g: THREE.Group, w: number, h: number, d: number, m: THREE.Material,
   return mesh;
 }
 
+// The piled regolith around the shelter wall: where each rock sits and how big it is (shared by the model and by collision)
+export function shelterRockSpots(r: number): { x: number; z: number; size: number }[] {
+  const doorHalf = Math.asin(1.25 / r);
+  const out: { x: number; z: number; size: number }[] = [];
+  for (let i = 0; i < 16; i++) {
+    const a = doorHalf + 0.25 + (i / 15) * (Math.PI * 2 - doorHalf * 2 - 0.5);
+    out.push({ x: Math.sin(a) * (r + 0.5), z: Math.cos(a) * (r + 0.5), size: 1.1 + (i % 3) * 0.3 });
+  }
+  return out;
+}
+
 export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building {
   const group = new THREE.Group();
   const doorHalf = Math.asin(1.25 / r);
@@ -109,13 +120,12 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
   if (shelter) {
     // Piled regolith around the wall: this is what stops the radiation.
     const rock = std(0x77747a, { roughness: 1 });
-    for (let i = 0; i < 16; i++) {
-      const a = doorHalf + 0.25 + (i / 15) * (Math.PI * 2 - doorHalf * 2 - 0.5);
-      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(1.1 + (i % 3) * 0.3, 0), rock);
-      m.position.set(Math.sin(a) * (r + 0.5), 0.7 + (i % 2) * 0.5, Math.cos(a) * (r + 0.5));
+    shelterRockSpots(r).forEach((sp, i) => {
+      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(sp.size, 0), rock);
+      m.position.set(sp.x, 0.7 + (i % 2) * 0.5, sp.z);
       m.rotation.set(i, i * 2, i * 3); m.castShadow = true;
       group.add(m);
-    }
+    });
     box(group, 1.2, 1.5, 0.5, dark, 0, 0.75, -3.2);
     box(group, 0.9, 0.5, 0.1, screen, 0, 1.15, -2.93);
     label(group, 'lbl_radmon', 0, 2.2, -3.2);

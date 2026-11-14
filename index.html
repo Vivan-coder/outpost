@@ -193,6 +193,15 @@
     #buttons { position: fixed; right: var(--sr); bottom: var(--sb); display: grid; grid-template-columns: 70px 70px; gap: 10px; direction: ltr; }
     #buttons button { width: 70px; height: 70px; border-radius: 50%; border: 2px solid #fff6; background: #101a2ecc; font-size: 11px; font-weight: 800; letter-spacing: .3px; touch-action: none; }
     #buttons button:active { background: #2a3a5ccc; }
+    /* Phone: small round switches to hide and show the menu buttons and the task list */
+    .tgl { display: none; position: fixed; left: var(--sl); width: 44px; height: 44px; border-radius: 50%; border: 2px solid #fff6; background: #101a2ecc; font-size: 20px; line-height: 1; align-items: center; justify-content: center; z-index: 8; padding: 0; touch-action: manipulation; }
+    #tglMenu { top: 46%; } #tglTasks { top: calc(46% + 54px); }
+    body.touch .tgl { display: flex; } @media (max-width: 900px) { .tgl { display: flex; } }
+    .tgl.off { background: #3a1d1dcc; border-color: #ff9a8a88; opacity: .8; }
+    body.hide-menu #buttons, body.hide-menu .pills { display: none !important; }
+    body.hide-tasks #jobs, body.hide-tasks #goals { display: none !important; }
+    body.working .tgl, body.cine .tgl, body.intro .tgl, body.placing .tgl { display: none !important; }
+    #banner .goalLine { font-weight: 700; }
     /* Short screens (a phone held sideways with the browser bars showing): smaller buttons in two rows, tighter resource panel, so nothing covers anything else */
     @media (max-height: 520px) {
       #buttons { grid-template-columns: repeat(3, 50px); gap: 6px; }
@@ -283,6 +292,7 @@
     <div id="sourceCard"></div>
     <div id="stormPanel"><b id="spTitle"></b><div id="spBadge"></div><canvas id="spChart" width="460" height="210"></canvas><small id="spNote"></small></div>
   </div>
+  <button class="tgl" id="tglMenu" aria-label="Menu">☰</button><button class="tgl" id="tglTasks" aria-label="Tasks">✔</button>
   <div id="hint"></div>
   <div id="hud">
     <div class="head"><span id="sol"></span><span id="timeLeft"></span></div>

@@ -111,7 +111,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   const menu = $('menu'), menuCard = $('menuCard'), overlay = $('overlay'), overlayCard = $('overlayCard');
   const banner = $('banner'), shelterBtn = $('shelterBtn'), storm = $('storm');
   const actBtn = $('actBtn'), taskBox = $('task'), seq = $('seq'), gauge = $('gauge');
-  let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = null as string | null, lastPrompt = '', lastTask = '', lastGoals = '';
+  let objectiveText = '', flashText = '', flashUntil = 0, lastBanner = '', lastJobs = null as string | null, lastPrompt = '', lastTask = '', lastGoals = '';
   let menuKind: 'build' | 'crew' | 'pause' | 'upgrade' | 'quiz' | null = null;
   let subTimer = 0;
   let goalsOpen = false, lastSim: SimState | null = null, workSig = '';
@@ -288,6 +288,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         }
       } else if (nowS < flashUntil) {
         html = flashText; cls = 'info';
+      } else if (objectiveText) {
+        html = `<span class="goalLine">${objectiveText}</span>`; cls = 'info';
       }
       if (html !== lastBanner) {
         lastBanner = html;
@@ -376,6 +378,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       }
     },
 
+    setObjective(text: string): void { objectiveText = text; },
     flash(text: string, nowS: number, seconds: number): void { flashText = text; flashUntil = nowS + seconds; },
 
     // Floating objective markers: on screen they sit over the thing, off screen they point the way.

@@ -917,6 +917,19 @@ function updateMarks(): void {
   ui.setMarks(items);
 }
 
+// One clear next step for the player, shown at the top of the screen whenever no storm message is up
+function objective(): string {
+  if (sim.status !== 'running') return '';
+  const broken = sim.modules.find((m) => m.broken);
+  if (broken) return t('obj_fix', { name: modName(broken.type) });
+  if (sim.jobs.length) return t('obj_job', { job: t(`task_${sim.jobs[0].task}` as TextKey) });
+  if (sim.stormIndex < level.storms.length) {
+    const left = Math.max(0, warnTime(sim, level, sim.stormIndex) - sim.time);
+    return left < 240 ? t('obj_wait', { t: `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` }) : t('obj_free');
+  }
+  return t('obj_free');
+}
+
 function jobList(): { text: string; urgent: boolean }[] {
   const out: { text: string; urgent: boolean }[] = [];
   for (const m of sim.modules) if (m.broken) out.push({ text: t('job_repair', { name: modName(m.type) }), urgent: true });
@@ -960,6 +973,12 @@ let cineToday = 0; // seconds of cutscene played today (limit about 25)
 const CINE_SEEN = 'outpost.cine.stormForming';
 const cineSeen = (): boolean => { try { return localStorage.getItem(CINE_SEEN) === '1'; } catch { return false; } };
 const reduceMotion = (): boolean => params.has('reduce') || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const GUIDE_SEEN = 'outpost.guide.seen';
+function showGuideOnce(): void {
+  try { if (localStorage.getItem(GUIDE_SEEN)) return; localStorage.setItem(GUIDE_SEEN, '1'); } catch { /* private window: show it */ }
+  unlockPointer();
+  ui.card({ title: t('guide_title'), paragraphs: [t('guide_1'), t('guide_2'), t('guide_3')], button: t('btnGotIt') });
+}
 function playStormCutscene(idx: number, full: boolean, after?: () => void): void {
   const info = level.storms[idx]?.info;
   if (!info || xrOn() || cine) { after?.(); return; }
@@ -974,6 +993,7 @@ function playStormCutscene(idx: number, full: boolean, after?: () => void): void
       try { localStorage.setItem(CINE_SEEN, '1'); } catch { /* private window */ }
       player.update(0, input.state);
       after?.();
+      showGuideOnce();
     },
   });
   cine = p;
@@ -1057,7 +1077,7 @@ renderer.setAnimationLoop((now) => {
     simAcc += dt;
     let ticked = false;
     while (simAcc >= TICK) { step(sim, level, TICK); simAcc -= TICK; ticked = true; }
-    if (ticked) { handleEvents(); ui.update(sim, clock, crew.safeCount(sim)); ui.setJobs(jobList()); }
+    if (ticked) { handleEvents(); ui.setObjective(objective()); ui.update(sim, clock, crew.safeCount(sim)); ui.setJobs(jobList()); }
 
     world.update(dt, sim, clock, px, pz, crew.positions());
     if (sim.storm?.phase === 'warning' && !cmeSaid.has(sim.storm.index) && sim.time >= level.storms[sim.storm.index].info.cmeAt) {
@@ -1157,4 +1177,23 @@ renderer.setAnimationLoop((now) => {
       ui.toast(t('iosTip'), 'bot');
     }, 12000);
   }
+}
+
+// Phone: switches to hide and show the menu buttons and the task list (remembered)
+{
+  const KEY = 'outpost.hidden.panels';
+  let hidden: string[] = [];
+  try { hidden = JSON.parse(localStorage.getItem(KEY) ?? '[]'); } catch { /* ignore */ }
+  const apply = () => {
+    document.body.classList.toggle('hide-menu', hidden.includes('menu'));
+    document.body.classList.toggle('hide-tasks', hidden.includes('tasks'));
+    byId('tglMenu').classList.toggle('off', hidden.includes('menu'));
+    byId('tglTasks').classList.toggle('off', hidden.includes('tasks'));
+    try { localStorage.setItem(KEY, JSON.stringify(hidden)); } catch { /* ignore */ }
+  };
+  const flip = (name: string) => { hidden = hidden.includes(name) ? hidden.filter((x) => x !== name) : [...hidden, name]; sfx.click(); apply(); };
+  byId('tglMenu').title = t('tglMenu'); byId('tglTasks').title = t('tglTasks');
+  byId('tglMenu').addEventListener('click', () => flip('menu'));
+  byId('tglTasks').addEventListener('click', () => flip('tasks'));
+  apply();
 }

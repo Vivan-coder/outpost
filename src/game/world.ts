@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { LevelConfig, ModuleType, SimState } from '../sim/sim.ts';
 import { createModuleModel, createRockPile } from '../render/models';
-import { createBuilding, createMarker, createTag, type Building } from '../render/building';
+import { createBuilding, createMarker, createTag, shelterRockSpots, type Building } from '../render/building';
 import { heightAt } from '../render/terrain';
 import { caps } from '../sim/sim.ts';
 import { CONTAINERS, LANDER_PAD, MODULE_POS, SHELTER_AT, STATION_R, STATION_PROPS, SHELTER_PROPS } from '../data/layout';
@@ -148,6 +148,8 @@ export class World {
     for (const v of this.buildings) for (const p of (v.type === 'habitat' ? STATION_PROPS : v.type === 'shelter' ? SHELTER_PROPS : [])) this.blockers.push({ x: v.x + p.x, z: v.z + p.z, r: p.r * 0.85, playerOnly: true });
     for (const m of sim.modules) if (!isBuilding(m.type)) this.blockers.push({ x: m.x, z: m.z, r: this.cfg.modules[m.type].radius });
     this.blockers.push({ x: this.cfg.rockPile.x, z: this.cfg.rockPile.z, r: this.cfg.rockPile.radius });
+    // The regolith boulders around the shelter are solid for the player (the crew use the doorway, which stays clear)
+    for (const v of this.buildings) if (v.type === 'shelter') for (const sp of shelterRockSpots(v.r)) this.blockers.push({ x: v.x + sp.x, z: v.z + sp.z, r: sp.size * 0.7, playerOnly: true });
     for (const b of this.extraBlockers) this.blockers.push(b);
   }
 
