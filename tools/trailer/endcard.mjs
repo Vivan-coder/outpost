@@ -22,12 +22,11 @@ const html = `<!doctype html><meta charset="utf-8"><style>
   .qr{position:absolute;top:380px;right:150px;width:560px;height:560px;border-radius:24px;overflow:hidden;box-shadow:0 0 50px #5f9bff88}
   .qr img{width:100%;height:100%;display:block}
   .line{position:absolute;left:0;width:1130px;text-align:center;font-size:42px;font-weight:700;color:#cfe3ff;padding:0 30px}
-  .l1{top:620px} .l2{top:690px} .l3{top:790px;font-size:36px;color:#9fb8e8;font-weight:600}
+  .l1{top:610px;font-size:56px;color:#fff;font-weight:800} .l2{top:690px} .l3{top:790px;font-size:36px;color:#9fb8e8;font-weight:600}
   .bar{position:absolute;left:0;right:0;height:3.2vh;background:#000} .t{top:0}.b{bottom:0}
 </style><body>${stars}<div class="logo">OUTPOST</div><div class="play">Play free in your browser</div>
 <div class="url">${url.replace(/^https?:\/\//, '')}</div><div class="qr"><img src="${qr}"></div>
-<div class="line l1">Ages 7-12 · Phone and laptop</div><div class="line l2">NASA data: DONKI, RadLab, OSDR</div>
-<div class="line l3">AI use disclosed in the project page</div><div class="bar t"></div><div class="bar b"></div></body>`;
+<div class="line l1">Start your space journey</div><div class="line l2">NASA data: DONKI, RadLab, OSDR</div><div class="bar t"></div><div class="bar b"></div></body>`;
 const browser = await chromium.launch({ executablePath: process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
 await page.setContent(html);
