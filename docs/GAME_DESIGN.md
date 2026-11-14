@@ -47,7 +47,7 @@ Day 1 skips the decision card and has no storm. Nothing in the budget can go bad
 | 5 | Big storm, then rescue | Storm 2 (X5.8 chain, the stronger one). Survive, then the rescue ship arrives, final report, stars, **Mars preview teaser** ("Next: Mars, where a message takes minutes to arrive"). |
 
 ### Mars preview (short, after day 5)
-One short scenario, 1-2 minutes. Same controls and meters. The new idea is **communication delay**: Mission Control's answer arrives late, so you decide first and the reply confirms or warns afterwards. Delay is scaled to game seconds and labelled as a game scaling of a real range (about 3-22 minutes one way). Dust storm cuts solar power (an existing sim feature). Cut first if time runs out; the teaser alone is enough.
+One short scenario, 1-2 minutes. Same controls and meters. The new idea is **communication delay**: Mission Control's answer arrives late, so you decide first and the reply confirms or warns afterwards. Delay is scaled to game seconds and labelled as a game scaling of a real range (about 4-24 minutes one way). Dust storm cuts solar power (an existing sim feature). Cut first if time runs out; the teaser alone is enough.
 
 ### Judge mode (3 minutes)
 `?judge=1` or "Quick demo (3 min)" on the title screen. Starts with a built base, skips the long intro, and plays a compressed **day 3**: short briefing (forecast, budget, one card), one hands-on job, the storm, a short report with the stars. "Reset demo" restarts it. It must show, in order: a cost on a choice, a real NASA source badge, the shelter moment, and the evening cause-and-effect line.
@@ -86,7 +86,7 @@ Secondary values (shown in menus or the report, not the main HUD): Food, Health,
 
 | Real (from NASA pages, labelled) | Game simplification (labelled "Game") |
 |---|---|
-| Storm timeline: flare time, CME speed, proton onset, geomagnetic Kp (DONKI, May 2024) | Time compression (about 20 real hours into 160 game seconds); storm strength and length are stand-ins from flare class; no proton end time exists in the records |
+| Storm timeline: flare time, CME speed, proton onset, geomagnetic Kp (DONKI, May 2024 and Sept 2017) | Time compression (real hours squeezed into game seconds); storm strength and length are stand-ins from flare class; no proton end time exists in the records |
 | ISS/ground dose rates (RadLab) used for comparisons and cards | Dose bar scale: a full bar stands for the Aug 1972 estimate, a story choice, not a dosimetry model |
 | Apollo mission doses and the Aug 1972 storm estimate (ALSJ) | All supply, power and oxygen numbers, equipment failures, meteors |
 | OSDR study titles for research and health notes | Task rewards, upgrade costs, crew behaviour |
@@ -178,4 +178,21 @@ Nothing new gets added unless it is in this document. If it must change, update 
 - [ ] Works offline after the first load; Arabic/RTL has no broken screens.
 - [ ] README explains the datasets (what is real, what is game design, with links).
 - [ ] `docs/ASSETS.md` and `docs/CREDITS.md` are complete, including AI disclosure.
-- [ ] Type-check, build, and automated playtest all pass; deployed on Netlify; link tested on a second device.
+- [ ] Type-check, build, and automated playtest all pass; deployed on Cloudflare Pages (https://novessa-outpost.pages.dev); link tested on a second device.
+
+## 11. Changes made after the first design (approved by the author, Nov 14-15 2026)
+
+These were added on request during the build. They follow the pillars (every choice costs something, real data labelled, easy for ages 7-12).
+
+| Change | Why | Where |
+|---|---|---|
+| **Second real DONKI event (Sept 2017) and a seed** that picks the two storms of a run (`?seed=N`, `?classic` = May 2024) | More variety from real data; storms land on day 3 and day 5 | `src/data/stormTimeline.ts`, `src/data/moon.ts` |
+| **Eat a meal at the canteen** (food -3, health +6, short cooldown); live Oxygen % and Food % labels over the gauges; furniture and shelter boulders are solid for the player | Every object should be usable or solid; levels must match the bars | `src/sim/sim.ts` (`eatMeal`), `src/render/building.ts`, `src/game/world.ts` |
+| **Storm cutscene "A storm is forming"**: flare class and time, C-M-X scale, CME speed, trip to the Moon, all from the bundled DONKI record, labelled Real NASA data / Archived. Skippable, short on repeat, replay in the Mission Log, reduce-motion setting | Explains the data right before the event | `src/cutscenes/` |
+| **Objective line and a "What to do now" card** after the first cutscene | Players did not know what to do next | `src/main.ts` (`objective`), `src/ui/ui.ts` |
+| **Phone layout fix and switches:** UI sized to the visible area under Safari's bars, compact layout for short screens, ☰ and ✔ switches to hide the menu buttons and the task list, web app manifest and icons for full-screen install | Buttons were hidden behind Safari's bars | `index.html`, `src/main.ts`, `public/` |
+| **Mars preview** implemented as described in section 3, with the verified delay range (see below) | Teaches communication delay | `src/data/mars.ts` |
+
+**Correction:** the real one-way radio delay between Earth and Mars is about **4 to 24 minutes** (NASA Goddard), not "3 to 22"; the code and the README use 4 to 24.
+
+**Not built from the plan:** the live-data function (it conflicts with the no-network rule), a helper bot, an astronaut creator, a guided tutorial checklist, and an offline service worker.

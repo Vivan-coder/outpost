@@ -18,7 +18,7 @@ Morning briefing at Mission Control (forecast from real DONKI data, power budget
 Moon mission = 5 days. Mars preview teaches communication delay.
 
 ## Tech
-- Three.js + Vite + TypeScript, static deploy on Netlify (`netlify.toml`, `DEPLOY.md`).
+- Three.js + Vite + TypeScript, static deploy on Cloudflare Pages from `main` (live: https://novessa-outpost.pages.dev; `DEPLOY.md`; `netlify.toml` is kept for Netlify).
 - `src/sim/` is pure logic on a fixed tick, no three.js or DOM, separate from rendering. A dashboard-only mode must stay possible.
 - All player-facing text lives in `src/i18n/en.ts` and `ar.ts` (EN/AR, RTL). No hard-coded strings in UI code.
 - PWA: must work offline after first load.
@@ -27,7 +27,7 @@ Moon mission = 5 days. Mars preview teaches communication delay.
 ## Rules for working
 - Test before saying something works. Never claim success from reading code alone.
 - Never leave the game broken: git tag before each change, revert on failure.
-- After each change run: type-check (`npx tsc --noEmit`), build (`npm run build`), and the automated playtest. Then deploy to Netlify.
+- After each change run: type-check (`npx tsc --noEmit`), build (`npm run build`), and the automated playtest. Then push to `main`: Cloudflare Pages deploys it.
 - Report what changed and what I should test, in plain words.
 - Ask me before adding any feature that is not in `docs/GAME_DESIGN.md`. Prefer fixing and polishing over adding.
 - If two sessions may be editing at once, only touch the files your task needs.
@@ -40,8 +40,9 @@ Moon mission = 5 days. Mars preview teaches communication delay.
 - AI use is disclosed in `docs/CREDITS.md` (and in the submission form).
 - Real data is labelled "Real NASA data" / "Archived" with its source; game numbers are labelled "Game". Never blur the two.
 
-## Known gaps between docs and code (as of 2026-11-14)
-- `README.md` still says ages 10-14; the target is 7-12.
-- The current build is one 660 s mission with 60 s sols, built around module building, upgrades and chores. The day loop with Mission Control (`src/ui/mission.ts`, `src/data/decisions.ts`) is in progress. Check `docs/GAME_DESIGN.md` section 9 for what is kept, secondary or hidden.
-- Mars is not built yet. `LevelConfig` already has optional `planet`, `dustStorms`, `commsDelay` fields.
+## Known gaps between docs and code (as of 2026-11-15)
+- The day loop, Mission Control, decision cards, two real DONKI storms with a seed, the Mars preview and the storm cutscene are built. See `docs/GAME_DESIGN.md` section 11 for what was added after the first design.
+- Not built: offline service worker (only a manifest and icons), live NASA function (conflicts with no-network), helper bot, astronaut creator, guided tutorial checklist, the Playwright playtest bot (`npm run playtest` does not exist).
+- Untested: real iPhone/Android, real VR headset, Arabic layout of the newer screens (the Arabic text is AI-drafted, not yet reviewed).
+- Trailer tooling is on the `trailer` branch only. Never commit videos, audio or the demo song (git-ignored).
 - Credits live in `docs/CREDITS.md` (not the repo root).

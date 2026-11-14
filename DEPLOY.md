@@ -1,8 +1,10 @@
 # Deploying Outpost
 
+**Current live site:** https://novessa-outpost.pages.dev, built by **Cloudflare Pages** from the `main` branch of `Vivan-coder/outpost` (framework preset None, build command `npm run build`, output directory `dist`, environment variable `NODE_VERSION` = `22`). Every push to `main` redeploys. An older Netlify site (`novessa-outpost.netlify.app`) is no longer updated: Netlify skipped new deploys when the account ran out of credits.
+
 Static site. Build command `npm run build`, publish directory `dist`. No server, no environment variables.
 
-## Permanent link with Netlify (one-time setup)
+## Alternative: Netlify (one-time setup; needs credits on the account)
 
 1. Go to https://app.netlify.com and sign in with GitHub.
 2. Click **Add new site** > **Import an existing project** > **GitHub**.
@@ -18,7 +20,7 @@ Static site. Build command `npm run build`, publish directory `dist`. No server,
 2. Pick the `outpost` repo, branch `main`.
 3. Framework preset: **None**. Build command: `npm run build`. Build output directory: `dist`.
 4. Add environment variable `NODE_VERSION` = `22`.
-5. Click **Save and Deploy**. The link looks like `https://outpost-xxx.pages.dev`.
+5. Click **Save and Deploy**. The link looks like `https://<project-name>.pages.dev` (ours is `novessa-outpost`).
 
 ## Redeploy after a change
 
@@ -28,7 +30,7 @@ git commit -m "what changed"
 git push
 ```
 
-Netlify (or Cloudflare Pages) rebuilds on every push to `main`. The new version is live in about a minute, at the same link.
+Cloudflare Pages (or Netlify, if it is connected and has credits) rebuilds on every push to `main`. The new version is live in about a minute, at the same link. Do not commit video, audio or large files: the trailer outputs are git-ignored on purpose.
 
 ## Quick phone test without deploying
 
