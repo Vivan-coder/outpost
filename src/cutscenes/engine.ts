@@ -36,6 +36,7 @@ export interface CutsceneDeps {
   root: HTMLElement; // #cineUi
   reduceMotion: boolean;
   skipLabel: string;
+  speed?: number; // 1 = normal; the trailer plays it faster
   fx: { hiss(): void; thud(): void; alarm(): void; click(): void };
   onEnd(): void;
 }
@@ -103,6 +104,7 @@ export class CutscenePlayer {
 
   update(dt: number): void {
     if (this.done) return;
+    dt *= this.d.speed ?? 1;
     this.time += dt; this.elapsed += dt; this.t += dt;
     let s = this.shots[this.index];
     if (this.t >= s.dur) {

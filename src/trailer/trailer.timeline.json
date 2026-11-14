@@ -1,0 +1,252 @@
+{
+  "_comment": "Source of truth for the trailer. Times are seconds from the start of the footage. Cuts are on the half-beat grid of 96 BPM (0.3125 s). Used by the director (in the game), by the music script, the SRT and the checks.",
+  "bpm": 96,
+  "fps": 30,
+  "totalSeconds": 29.6,
+  "footageSeconds": 26.25,
+  "shots": [
+    {
+      "id": "title",
+      "start": 0,
+      "end": 2.5
+    },
+    {
+      "id": "storm",
+      "start": 2.5,
+      "end": 6.5625
+    },
+    {
+      "id": "control",
+      "start": 6.5625,
+      "end": 11.5625
+    },
+    {
+      "id": "hands",
+      "start": 11.5625,
+      "end": 17.5
+    },
+    {
+      "id": "hit",
+      "start": 17.5,
+      "end": 23.125
+    },
+    {
+      "id": "report",
+      "start": 23.125,
+      "end": 26.25
+    },
+    {
+      "id": "end",
+      "start": 26.25,
+      "end": 29.6
+    }
+  ],
+  "captions": [
+    {
+      "start": 0.35,
+      "end": 2.4,
+      "text": "Run a Moon base. Survive the Sun."
+    },
+    {
+      "start": 2.75,
+      "end": 6.4,
+      "text": "A real solar storm from NASA data is coming."
+    },
+    {
+      "start": 6.85,
+      "end": 11.4,
+      "text": "Power is limited. Every choice has a cost."
+    },
+    {
+      "start": 11.9,
+      "end": 17.3,
+      "text": "Run the outpost with your crew."
+    },
+    {
+      "start": 17.8,
+      "end": 22.9,
+      "text": "Real data decides the danger."
+    },
+    {
+      "start": 23.4,
+      "end": 26.1,
+      "text": "See the result. Try a new plan."
+    }
+  ],
+  "events": [
+    {
+      "t": 0,
+      "do": "intro"
+    },
+    {
+      "t": 0,
+      "do": "title",
+      "on": true,
+      "tag": ""
+    },
+    {
+      "t": 2.5,
+      "do": "title",
+      "on": false
+    },
+    {
+      "t": 2.5,
+      "do": "introEnd"
+    },
+    {
+      "t": 2.5,
+      "do": "storm",
+      "seconds": 4.0625
+    },
+    {
+      "t": 6.5625,
+      "do": "briefing"
+    },
+    {
+      "t": 7.2,
+      "do": "slider",
+      "key": "shield",
+      "to": 45,
+      "dur": 1
+    },
+    {
+      "t": 8.6,
+      "do": "slider",
+      "key": "comms",
+      "to": 30,
+      "dur": 0.9
+    },
+    {
+      "t": 9.9,
+      "do": "slider",
+      "key": "life",
+      "to": 40,
+      "dur": 0.9
+    },
+    {
+      "t": 11.3,
+      "do": "startDay"
+    },
+    {
+      "t": 11.7,
+      "do": "solar"
+    },
+    {
+      "t": 14.5,
+      "do": "openCrew",
+      "i": 0,
+      "requires": "noWork"
+    },
+    {
+      "t": 15.45,
+      "do": "key",
+      "code": "Digit1"
+    },
+    {
+      "t": 15.7,
+      "do": "closeMenus"
+    },
+    {
+      "t": 16.4,
+      "do": "sim",
+      "time": 258.7
+    },
+    {
+      "t": 17,
+      "do": "sim",
+      "time": 347.9
+    },
+    {
+      "t": 23,
+      "do": "sim",
+      "day": 2,
+      "time": 395.88
+    },
+    {
+      "t": 26.25,
+      "do": "done"
+    }
+  ],
+  "camera": [
+    {
+      "t": 2.5,
+      "pos": [
+        -9,
+        1.7,
+        13
+      ],
+      "yaw": -0.69,
+      "pitch": 0.04
+    },
+    {
+      "t": 11.5,
+      "pos": [
+        -12.5,
+        1.7,
+        3.5
+      ],
+      "yaw": 0.69,
+      "pitch": 0.02
+    },
+    {
+      "t": 14.4,
+      "pos": [
+        -12,
+        1.7,
+        3
+      ],
+      "yaw": 0.62,
+      "pitch": 0.02
+    },
+    {
+      "t": 17.4,
+      "pos": [
+        4,
+        1.7,
+        18
+      ],
+      "yaw": 0.35,
+      "pitch": 0.03
+    },
+    {
+      "t": 19.2,
+      "pos": [
+        10,
+        1.7,
+        21
+      ],
+      "yaw": -0.9,
+      "pitch": 0.03
+    },
+    {
+      "t": 21.2,
+      "pos": [
+        15.5,
+        1.7,
+        19.5
+      ],
+      "yaw": -0.36,
+      "pitch": 0.03
+    },
+    {
+      "t": 22.7,
+      "pos": [
+        17,
+        1.7,
+        16.8
+      ],
+      "yaw": 0,
+      "pitch": 0.02
+    },
+    {
+      "t": 26.3,
+      "pos": [
+        17,
+        1.7,
+        13.2
+      ],
+      "yaw": 0,
+      "pitch": 0.02
+    }
+  ]
+}

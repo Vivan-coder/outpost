@@ -1,2 +1,5 @@
 node_modules
 dist
+
+# trailer outputs (videos, raw screen captures): never committed or deployed
+docs/trailer/out/

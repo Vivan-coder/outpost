@@ -48,6 +48,19 @@
     #hotbar button small { position: absolute; top: 1px; left: 4px; font-size: 10px; font-weight: 800; opacity: .8; }
     #hotbar button.on { border-color: var(--accent); background: #3a3010cc; } #hotbar button.need { animation: pulse2 .9s ease-in-out infinite; box-shadow: 0 0 14px var(--accent); }
     @keyframes pulse2 { 50% { transform: scale(1.12); } }
+    /* ?trailer=1: recording mode (see src/trailer/). Hides debug and helper UI, thin letterbox, big captions. */
+    body.trailer, body.trailer * { cursor: none !important; }
+    body.trailer #fps, body.trailer #hint, body.trailer #judgeBar, body.trailer #buttons, body.trailer #cross, body.trailer #dot, body.trailer #prompt, body.trailer .toast.bot, body.trailer .cineSkip, body.trailer .cineCap, body.trailer #introSkip { display: none !important; }
+    body.trailer::before, body.trailer::after { content: ''; position: fixed; left: 0; right: 0; height: 3.2vh; background: #000; z-index: 90; pointer-events: none; }
+    body.trailer::before { top: 0; } body.trailer::after { bottom: 0; }
+    body.trailer #cineUi .bar { height: 3.2vh; } body.trailer .cineBadges { top: calc(3.2vh + 14px); } body.trailer .cineOver { top: calc(3.2vh + 14px); }
+    #trCaption { position: fixed; left: 50%; bottom: calc(3.2vh + 4.5vh); transform: translateX(-50%); z-index: 95; max-width: 88vw; text-align: center; font: 800 5.6vh/1.15 system-ui, 'Segoe UI', Arial, sans-serif; color: #fff; background: rgba(4, 8, 20, .82); border: 2px solid rgba(255, 255, 255, .25); border-radius: 2vh; padding: 1.1vh 2.6vh; text-shadow: 0 2px 8px #000; opacity: 0; pointer-events: none; white-space: nowrap; }
+    body.trailer #workFade, body.trailer #fade { display: none !important; } /* hard cuts, no fades to black, in the trailer */
+    body.trailer #hud { zoom: 1.6; } body.trailer #left { zoom: 1.25; } body.trailer #stormPanel { zoom: 1.35; } body.trailer #work { zoom: 1.35; }
+    body.trailer #introTitle { top: 22%; } body.trailer #introTitle b { font-size: 19vh; } body.trailer #introTitle span { display: none; }
+    body.trailer .cineBadges .badge { font-size: 22px; padding: 6px 16px; } body.trailer .cineOver b { font-size: 150px; } body.trailer .cineOver span { font-size: 46px; } body.trailer .cineOver small { font-size: 22px; } body.trailer .cineOver .scale i { font-size: 34px; padding: 6px 22px; }
+    body.trailer[data-shot="control"] #trCaption { bottom: auto; top: calc(3.2vh + 1.6vh); } body.trailer[data-shot="control"] #overlayCard { zoom: 0.9; } body.trailer.intro #subtitle { display: none !important; } body.trailer[data-shot="hands"] #overlayCard { zoom: 1.5; } body.trailer[data-shot="report"] #overlayCard { zoom: 1.8; }
+    #trSync { position: fixed; inset: 0; background: #ff00ff; z-index: 200; }
     #cineUi { position: fixed; inset: 0; display: none; pointer-events: none; z-index: 6; }
     body.cine #cineUi { display: block; }
     body.cine #hud, body.cine #left, body.cine #buttons, body.cine #hint, body.cine #banner, body.cine #marks, body.cine #cross, body.cine #dot, body.cine #prompt, body.cine #toasts, body.cine #fps, body.cine #subtitle, body.cine #popups, body.cine #judgeBar { display: none !important; }

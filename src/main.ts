@@ -77,9 +77,16 @@ const isMars = new URLSearchParams(location.search).has('mars');
 const level = isMars ? mars : moon;
 if (isMars) document.body.classList.add('mars');
 // Every run uses a seed: it changes the order of the decision cards and how fast dust builds up. ?seed=123 repeats a run.
+// ?trailer=1 is for recording the trailer only: fixed random numbers, no debug UI, and a director script (src/trailer/).
+const trailer = new URLSearchParams(location.search).get('trailer') === '1';
+if (trailer) {
+  let a = 20260515;
+  Math.random = () => { a = (a + 0x6d2b79f5) | 0; let x = Math.imul(a ^ (a >>> 15), 1 | a); x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+  document.body.classList.add('trailer');
+}
 const runSeed = Number(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 1e9);
 level.seed = runSeed;
-if (!isMars && !new URLSearchParams(location.search).has('judge')) level.storms = stormsForSeed(new URLSearchParams(location.search).has('classic') ? 0 : runSeed);
+if (!isMars && !trailer && !new URLSearchParams(location.search).has('judge')) level.storms = stormsForSeed(new URLSearchParams(location.search).has('classic') ? 0 : runSeed);
 if (!isMars) level.dustRate = 0.8 + seeded(runSeed)() * 0.6;
 const sim = createSim(level);
 // Testing aid: ?skip=150 starts the mission that many seconds in (nobody acts during the skipped time).
@@ -642,6 +649,7 @@ function showTutorial(): void {
 
 // ---- Opening cinematic ----
 let intro: Intro | null = null;
+let trailerTitle = false;
 const fadeEl = byId('fade'), titleEl = byId('introTitle');
 (titleEl.querySelector('b') as HTMLElement).textContent = t('introTitle');
 (titleEl.querySelector('span') as HTMLElement).textContent = t('introTag');
@@ -657,7 +665,7 @@ function startIntro(): void {
   intro = new Intro({
     scene, camera, habLights: lights,
     say: (key) => ui.subtitle('', t(key), 5),
-    showTitle: (on) => titleEl.classList.toggle('on', on),
+    showTitle: (on) => titleEl.classList.toggle('on', on || trailerTitle),
     setFade: (o) => { fadeEl.style.opacity = String(o); },
     fx: { engine: () => sfx.engine(), thud: () => sfx.thud(), hiss: () => sfx.hiss(), click: () => sfx.click() },
   });
@@ -677,10 +685,10 @@ function endIntro(): void {
   player.pos.set(0, 0, 1.5); player.yaw = 0; player.pitch = 0;
   player.update(0, input.state);
   ui.subtitle('', '', 0);
-  showTutorial();
+  if (!trailer) showTutorial();
 }
 
-const judge = params.has('judge');
+const judge = params.has('judge') || trailer;
 if (judge) {
   document.body.classList.add('judge');
   // A ready, upgraded base about 20 s before the first storm warning, with a job already waiting
@@ -743,7 +751,9 @@ if (isMars) {
   sun.color.setHex(0xffd9a8);
 }
 const skipIntroNow = params.has('skip') || params.has('nointro') || judge || isMars;
-if (skipIntroNow) {
+if (trailer) {
+  // the director plays the opening (src/trailer/director.ts)
+} else if (skipIntroNow) {
   const l = createLander();
   l.group.position.set(LANDER_AT.x, 0, LANDER_AT.z); l.group.remove(l.flame, l.light); l.hatch.rotation.z = -1.7; l.ladder.visible = true;
   scene.add(l.group);
@@ -954,14 +964,14 @@ let cineToday = 0; // seconds of cutscene played today (limit about 25)
 const CINE_SEEN = 'outpost.cine.stormForming';
 const cineSeen = (): boolean => { try { return localStorage.getItem(CINE_SEEN) === '1'; } catch { return false; } };
 const reduceMotion = (): boolean => params.has('reduce') || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
-function playStormCutscene(idx: number, full: boolean, after?: () => void): void {
+function playStormCutscene(idx: number, full: boolean, after?: () => void, speed = 1): void {
   const info = level.storms[idx]?.info;
   if (!info || xrOn() || cine) { after?.(); return; }
   const shots = stormFormingShots(info, !full && cineSeen());
   if (!full && cineToday + shotsLength(shots) > MAX_CUTSCENE_SECONDS_PER_DAY) { after?.(); return; }
   unlockPointer(); unlockAudio();
   const p: CutscenePlayer = new CutscenePlayer(buildStormStage(), shots, {
-    camera, root: byId('cineUi'), reduceMotion: reduceMotion(), skipLabel: t('cine_skip'),
+    camera, root: byId('cineUi'), reduceMotion: reduceMotion(), skipLabel: t('cine_skip'), speed,
     fx: { hiss: () => sfx.hiss(), thud: () => sfx.thud(), alarm: () => sfx.alarm(), click: () => sfx.click() },
     onEnd: () => {
       cine = null; cineToday += p.elapsed;
@@ -975,20 +985,20 @@ function playStormCutscene(idx: number, full: boolean, after?: () => void): void
 window.addEventListener('outpost:cine', () => { cineQueue.push(() => playStormCutscene(sim.storm?.index ?? Math.min(sim.stormIndex, level.storms.length - 1), true)); });
 if (params.has('debug')) Object.assign((window as unknown as { outpost: object }).outpost, { cine: (full = true) => playStormCutscene(0, full), cinePlayer: () => cine, cineState: () => ({ playing: !!cine, queued: cineQueue.length, today: cineToday }) });
 
-function dayFlow(first: boolean): void {
+function dayFlow(first: boolean, opts?: { noDecisions?: boolean }): void {
   if (new URLSearchParams(location.search).has('nodash') || xrOn()) return;
   if (isMars && !first) return; // the preview is short: one power plan, then radio decisions
   const day = sim.day + 1;
   cineToday = 0;
   const ctx: McContext = {
-    day, report: first ? null : sim.lastDay, choices: first ? [] : choicesToday.splice(0), decisions: decisionPlan[day - 1] ?? [], gentle: day === 1,
+    day, report: first ? null : sim.lastDay, choices: first ? [] : choicesToday.splice(0), decisions: opts?.noDecisions ? [] : decisionPlan[day - 1] ?? [], gentle: day === 1,
     dayNote: first ? null : DAY_NOTES[(day - 2 + 12) % 12],
     applyDecision: (id, o) => { const dec = DECISIONS.find((d) => d.id === id)!; applyEffects(sim, level, dec[o]); choicesToday.push(t(`dec_${id}_${o}` as TextKey)); sfx.build(); },
     openSource: (info) => ui.toast(`${t('srcName', { s: info.source })} · ${info.url}`, 'bot'),
     onDone: (b) => {
       sim.budget = b; sfx.fix(); unlockAudio();
       // A storm will be announced during this day: explain it with the real data first
-      if (sim.stormIndex < level.storms.length && warnTime(sim, level, sim.stormIndex) <= sim.time + level.solLength) { const idx = sim.stormIndex; cineQueue.push(() => playStormCutscene(idx, false)); }
+      if (!trailer && sim.stormIndex < level.storms.length && warnTime(sim, level, sim.stormIndex) <= sim.time + level.solLength) { const idx = sim.stormIndex; cineQueue.push(() => playStormCutscene(idx, false)); }
     },
   };
   unlockPointer();
@@ -1140,3 +1150,42 @@ renderer.setAnimationLoop((now) => {
     acc = 0; frames = 0; worst = 0;
   }
 });
+
+// ---- Trailer director (only with ?trailer=1; the code is loaded on demand and never runs in normal play) ----
+if (trailer) {
+  import('./trailer/director').then((m) => m.createDirector({
+    sim, level, player, crew, camera, canvas, input,
+    ctrl: {
+      intro: (on) => { if (on) startIntro(); else endIntro(); },
+      title: (on, tag) => { trailerTitle = on; const sp = titleEl.querySelector('span') as HTMLElement; if (tag !== undefined) sp.textContent = tag; },
+      introActive: () => !!intro,
+      cine: () => !!cine,
+      // Compile shaders and upload textures for the cutscene and the hands-on stage before recording, so nothing hitches
+      warm: () => {
+        const st = buildStormStage();
+        const via = (sc: THREE.Scene) => { if (quality === 'low') renderer.render(sc, camera); else { renderPass.scene = sc; composer.render(); renderPass.scene = scene; } }; // the same path the game draws through
+        for (const act of ['flare', 'cmeLeave', 'cmeHit']) { st.update(act, 0.5, 1); via(st.scene); }
+        st.dispose();
+        const mod = sim.modules.find((x) => x.type === 'solar')!;
+        startWork('solar', { kind: 'solar', mini: 'wipe', moduleId: mod.id, jobId: null, x: mod.x, z: mod.z, reach: 9 } as TaskTarget);
+        if (work) { work.update(0.05); const f = work.frame(52, camera.aspect); camera.position.copy(f.pos); camera.lookAt(f.look); ui.setWork(work.view(), isTouch()); via(workScene); via(workScene); }
+        leaveWork();
+        fadeEl.style.opacity = '0';
+      },
+      storm: (speed, after) => playStormCutscene(0, true, after, speed),
+      briefing: () => dayFlow(true, { noDecisions: true }),
+      startSolar: () => {
+        const mod = sim.modules.find((x) => x.type === 'solar')!;
+        const job = sim.jobs.find((j) => j.moduleId === mod.id && j.task === 'solar');
+        startWork('solar', { kind: 'solar', mini: 'wipe', moduleId: mod.id, jobId: job?.id ?? null, x: mod.x, z: mod.z, reach: 9 } as TaskTarget);
+      },
+      work: () => work,
+      openCrew: (i) => openCrew(i),
+      closeMenus: () => ui.closeMenu(),
+      key: (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code })),
+      callShelter: () => { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
+      blocking: () => ui.blocking(),
+      shelterAt: () => { const v = world.buildings.find((b) => b.type === 'shelter')!; return { x: v.x, z: v.z, r: v.r }; },
+    },
+  }));
+}
