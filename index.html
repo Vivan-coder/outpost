@@ -20,8 +20,10 @@
     #fps { color: #9f9; font: 10px/1.3 ui-monospace, monospace; background: #0007; padding: 3px 5px; border-radius: 4px; pointer-events: none; white-space: pre; opacity: .8; }
     #left .pills { display: flex; gap: 6px; }
     #left .pills button { padding: 7px 11px; border-radius: 999px; background: #14306be6; border: 1px solid #7fb0ff; font-size: 11px; font-weight: 800; }
-    #jobs, #sourceCard { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; background: var(--panel);
+    #jobs, #sourceCard, #goals { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; background: var(--panel);
       border: 1px solid var(--line); font-size: 11px; line-height: 1.35; pointer-events: none; }
+    #goals b { display: block; color: #9cc4ff; margin-bottom: 3px; font-size: 12px; } #goals div.done { color: var(--good); }
+    #btnFF.on { background: #2e9d57cc !important; border-color: #fff !important; }
     #jobs b { display: block; color: var(--accent); margin-bottom: 3px; font-size: 12px; }
     #jobs div { padding: 2px 0; } #jobs div.urgent { color: var(--bad); font-weight: 700; }
     #sourceCard { background: #0b1d44e6; border-color: #7fb0ff; display: none; font-size: 10.5px; }
@@ -137,6 +139,7 @@
     <div id="fps"></div>
     <div class="pills"><button id="pauseBtn"></button><button id="dataBtn"></button></div>
     <div id="jobs"></div>
+    <div id="goals"></div>
     <div id="sourceCard"></div>
   </div>
   <div id="hint"></div>
@@ -144,13 +147,14 @@
     <div class="head"><span id="sol"></span><span id="timeLeft"></span></div>
     <div id="bars"></div>
     <div class="parts"><span id="partsLabel"></span><span id="partsValue"></span></div>
+    <div class="parts" style="margin-top:3px;padding-top:0;border:0"><span id="resLabel"></span><span id="resValue"></span></div>
   </div>
   <div id="banner"></div>
   <button id="shelterBtn"></button>
   <div id="cross"></div><div id="dot"></div>
   <div id="prompt"></div>
   <div id="task">
-    <h3 id="taskTitle"></h3><p id="taskHint"></p>
+    <h3 id="taskTitle"></h3><p id="taskHint"></p><p id="taskWhy" style="display:none;font-size:11px;opacity:.85;border-left:3px solid #7fb0ff;padding-left:8px;text-align:left"></p>
     <div id="seq"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button></div>
     <div id="gauge"><div class="zone"></div><div class="needle"></div></div>
     <div class="bar"><i id="taskBar"></i></div>
@@ -161,6 +165,8 @@
     <button id="buildBtn"></button>
     <button id="crewBtn"></button>
     <button id="actBtn"></button>
+    <button id="btnFF"></button>
+    <button id="btnSkip"></button>
     <button id="jump"></button>
   </div>
   <div id="placeBar"><p id="placeHint"></p><br /><button id="placeBtn"></button><button id="cancelBtn"></button></div>

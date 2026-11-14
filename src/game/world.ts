@@ -1,16 +1,25 @@
 import * as THREE from 'three';
 import type { LevelConfig, ModuleType, SimState } from '../sim/sim.ts';
 import { createModuleModel, createRockPile } from '../render/models';
-import { createBuilding, createMarker, type Building } from '../render/building';
+import { createBuilding, createMarker, createTag, type Building } from '../render/building';
 import { heightAt } from '../render/terrain';
 import type { Blocker } from './collide';
 
-interface ModuleView { group: THREE.Group; alert: THREE.Sprite; job: THREE.Sprite; top: number }
+interface ModuleView { group: THREE.Group; alert: THREE.Sprite; job: THREE.Sprite; top: number; ring: THREE.Mesh; badge: ReturnType<typeof createTag> }
+
+// Upgrade levels show as a glowing ring on the ground and an Mk label: cyan for Mk2, gold for Mk3.
+const RING = [0x000000, 0x4fd8ff, 0xffc840];
+const makeRing = (r: number) => {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(r, 0.12, 5, 28), new THREE.MeshBasicMaterial({ color: 0x4fd8ff }));
+  m.rotation.x = Math.PI / 2; m.position.y = 0.12; m.visible = false;
+  return m;
+};
 interface Meteor { mesh: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number }
 
 export interface BuildingView {
   id: number; type: 'habitat' | 'shelter'; x: number; z: number; r: number; inner: number;
   b: Building; blocker: Blocker; slide: number; // slide: 0 closed .. 1 open
+  ring: THREE.Mesh;
 }
 
 const TOP: Record<ModuleType, number> = { habitat: 0, shelter: 0, solar: 3.6, battery: 2.6, lifeSupport: 4.2, tank: 3.2, greenhouse: 3.4 };
@@ -44,7 +53,9 @@ export class World {
         b.group.position.set(m.x, heightAt(m.x, m.z), m.z);
         this.scene.add(b.group);
         const blocker: Blocker = { x: m.x, z: m.z, r, ring: { inner: r - 0.35, doorHalf: b.doorHalf, open: true } };
-        this.buildings.push({ id: m.id, type: m.type, x: m.x, z: m.z, r, inner: r - 0.35, b, blocker, slide: 1 });
+        const ring = makeRing(r + 0.8);
+        b.group.add(ring);
+        this.buildings.push({ id: m.id, type: m.type, x: m.x, z: m.z, r, inner: r - 0.35, b, blocker, slide: 1, ring });
         continue;
       }
       if (this.views.has(m.id)) continue;
@@ -53,8 +64,12 @@ export class World {
       const alert = createMarker('!', '#e53935');
       const job = createMarker('★', '#e0a020');
       for (const s of [alert, job]) { s.position.y = TOP[m.type]; s.visible = false; group.add(s); }
+      const ring = makeRing(this.cfg.modules[m.type].radius + 0.5);
+      const badge = createTag();
+      badge.sprite.position.y = TOP[m.type] + 1.1; badge.sprite.visible = false;
+      group.add(ring, badge.sprite);
       this.scene.add(group);
-      this.views.set(m.id, { group, alert, job, top: TOP[m.type] });
+      this.views.set(m.id, { group, alert, job, top: TOP[m.type], ring, badge });
     }
     this.blockers.length = 0;
     for (const v of this.buildings) this.blockers.push(v.blocker);
@@ -88,6 +103,9 @@ export class World {
       const bob = v.top + Math.sin(time * 4) * 0.18;
       v.alert.position.y = bob; v.job.position.y = bob;
       v.group.rotation.z = m.broken ? Math.sin(time * 30) * 0.004 : 0;
+      const lvl = sim.levels[m.type as 'solar'] ?? 1;
+      v.ring.visible = lvl > 1; v.badge.sprite.visible = lvl > 1;
+      if (lvl > 1) { (v.ring.material as THREE.MeshBasicMaterial).color.setHex(RING[lvl - 1]); v.badge.set(`Mk${lvl}`, lvl > 2 ? '#ffd24a' : '#9fe8ff'); }
     }
 
     for (const v of this.buildings) {
@@ -96,6 +114,9 @@ export class World {
       if (!v.blocker.ring!.open && crew.some((c) => Math.hypot(c.x - v.x, c.z - dz) < 2.4)) v.blocker.ring!.open = true;
       v.slide += ((v.blocker.ring!.open ? 1 : 0) - v.slide) * Math.min(1, dt * 6);
       v.b.door.position.x = v.slide * 2.5;
+      const lvl = v.type === 'habitat' ? sim.levels.station : 1;
+      v.ring.visible = lvl > 1;
+      if (lvl > 1) (v.ring.material as THREE.MeshBasicMaterial).color.setHex(RING[lvl - 1]);
 
       // Cut-away: fade the roof and wall when the player is inside or close, so the interior reads.
       const d = Math.hypot(px - v.x, pz - v.z);
@@ -126,6 +147,16 @@ export class World {
     if (!v) return;
     v.group.scale.setScalar(1.12);
     setTimeout(() => v.group.scale.setScalar(1), 180);
+  }
+
+  // Upgrade animation: every machine of this kind (or the station) swells and settles.
+  pulseType(sim: SimState, type: string): void {
+    for (const m of sim.modules) if (m.type === type) {
+      const v = this.views.get(m.id);
+      if (v) { v.group.scale.setScalar(1.3); setTimeout(() => v.group.scale.setScalar(1.05), 220); setTimeout(() => v.group.scale.setScalar(1), 440); }
+      const b = this.buildings.find((x) => x.id === m.id);
+      if (b) { b.ring.scale.setScalar(1.25); setTimeout(() => b.ring.scale.setScalar(1), 400); }
+    }
   }
 
   setGhost(type: ModuleType | null, x = 0, z = 0, ok = true): void {

@@ -9,7 +9,9 @@ const MISSION_LENGTH = 660;
 const SOL_LENGTH = 60;
 
 // The storms (when they are detected, when the protons arrive, how strong, how long) are built from
-// the NASA DONKI records in solar-event.json. The rates below are game balance numbers for ages 10-14.
+// the NASA DONKI records in solar-event.json. The rates and rewards below are game balance numbers.
+// Tasks are inspired by real space station work and simplified. `why` points into facts.json and is only
+// set where the fact was verified on a NASA page.
 export const moon: LevelConfig = {
   id: 'moon',
   tickHz: 5,
@@ -17,21 +19,17 @@ export const moon: LevelConfig = {
   crewNames: ['Zaid', 'Mariam', 'Sam'],
   missionLength: MISSION_LENGTH,
   solLength: SOL_LENGTH,
-  start: { power: 40, air: 55, food: 45, parts: 3 },
+  start: { power: 40, air: 55, food: 45, parts: 3, health: 90, research: 0 },
   baseCap: { power: 60, air: 80, food: 80 },
   airPerPerson: 0.04,
   foodPerPerson: 0.016,
   basePowerDraw: 0.06,
   playerDoseWeight: 0.6,
-  choreDuration: 60,
-  jobEvery: 30,
-  maxJobs: 3,
-  jobRewards: {
-    clean: { power: 14, air: 0, food: 0 },
-    water: { power: 0, air: 0, food: 10 },
-    refill: { power: 0, air: 12, food: 0 },
-  },
   baselineRadiation: baselineMeterRate(MISSION_LENGTH, MISSION_LENGTH / SOL_LENGTH),
+  healthDecay: 0.04,
+  jobGap: [45, 75],
+  maxJobs: 3,
+  crewRewardShare: 0.7,
   buildRadius: 45,
   wearAfter: 100,
   wearPerSecond: 0.0016,
@@ -44,11 +42,36 @@ export const moon: LevelConfig = {
     tank: { cost: 2, radius: 1.6, power: 0, air: 0, food: 0, powerCap: 0, airCap: 50 },
     greenhouse: { cost: 3, radius: 2.6, power: -0.06, air: -0.01, food: 0.035, powerCap: 0, airCap: 0 },
   },
-  chores: [
-    { id: 'tomatoes', at: 'greenhouse', power: 0, air: 0, food: 0.04, partsEvery: 0 },
-    { id: 'panels', at: 'solar', power: 0.14, air: 0, food: 0, partsEvery: 0 },
-    { id: 'filters', at: 'lifeSupport', power: 0, air: 0.06, food: 0, partsEvery: 0 },
-    { id: 'rocks', at: 'rockPile', power: 0, air: 0, food: 0, partsEvery: 20 },
+  tasks: [
+    { id: 'o2gen', at: 'lifeSupport', mini: 'gauge', seconds: 28, reward: { air: 14, research: 3 }, why: null, player: true },
+    { id: 'water', at: 'tank', mini: 'sequence', seconds: 26, reward: { air: 12, research: 3 }, why: 'water90', player: true },
+    { id: 'co2', at: 'lifeSupport', mini: 'sequence', seconds: 30, reward: { air: 10, health: 2, research: 3 }, why: null, player: true },
+    { id: 'thermal', at: 'battery', mini: 'gauge', seconds: 24, reward: { power: 12, research: 3 }, why: null, player: true },
+    { id: 'solar', at: 'solar', mini: 'wipe', seconds: 30, reward: { power: 18, research: 3 }, why: 'dustPanels', player: true },
+    { id: 'greenhouse', at: 'greenhouse', mini: 'wipe', seconds: 28, reward: { food: 12, research: 3 }, why: null, player: true },
+    { id: 'exercise', at: 'habitat', mini: 'gauge', seconds: 30, reward: { health: 14, research: 2 }, why: 'exercise2h', player: true },
+    { id: 'medical', at: 'habitat', mini: 'sequence', seconds: 25, reward: { health: 12, research: 3 }, why: 'bone1', player: true },
+    { id: 'radmon', at: 'shelter', mini: 'gauge', seconds: 24, reward: { radiation: -6, research: 4 }, why: null, player: true },
+    { id: 'comms', at: 'habitat', mini: 'sequence', seconds: 30, reward: { research: 5 }, why: null, player: true },
+    { id: 'regolith', at: 'rockPile', mini: 'wipe', seconds: 30, reward: { parts: 2, research: 1 }, why: null, player: false },
+  ],
+  upgrades: {
+    solar: { costs: [3, 6], mult: [1, 1.4, 1.8] },
+    lifeSupport: { costs: [4, 7], mult: [1, 1.4, 1.8] },
+    greenhouse: { costs: [4, 7], mult: [1, 1.4, 1.8] },
+    battery: { costs: [3, 5], mult: [0, 25, 50] },
+    tank: { costs: [3, 5], mult: [0, 25, 50] },
+    station: { costs: [4, 8], mult: [0.5, 0.3, 0.15] },
+    engineering: { costs: [4, 8], mult: [1, 0.8, 0.6] },
+  },
+  autoRepairSeconds: 45,
+  goals: [
+    { id: 'air', kind: 'airStreak', target: 180 },
+    { id: 'power', kind: 'powerStreak', target: 300 },
+    { id: 'health', kind: 'healthStreak', target: 240 },
+    { id: 'tasks', kind: 'tasks', target: 12 },
+    { id: 'upgrades', kind: 'upgrades', target: 3 },
+    { id: 'radiation', kind: 'radiationUnder', target: 25 },
   ],
   startModules: [
     { type: 'habitat', x: 0, z: 0 },
@@ -56,6 +79,8 @@ export const moon: LevelConfig = {
     { type: 'solar', x: -14, z: 6 },
     { type: 'lifeSupport', x: 12, z: -3 },
     { type: 'greenhouse', x: -12, z: -9 },
+    { type: 'tank', x: 8, z: -9 },
+    { type: 'battery', x: -9, z: 12 },
   ],
   rockPile: { x: 3, z: -14, radius: 1.6 },
   storms: buildStorms(solarEvent, {

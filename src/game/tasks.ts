@@ -1,18 +1,19 @@
 // Hands-on tasks: hold to start (progress ring), then a short mini-step that depends on the task.
 // Pure game logic: no DOM, no three.js. The UI draws from the public fields.
 
-export type TaskKind = 'repair' | 'clean' | 'water' | 'refill';
-export type MiniType = 'sequence' | 'gauge' | 'wipe';
+import type { MiniType, TaskId } from '../sim/sim.ts';
+
+export type TaskKind = 'repair' | TaskId;
+export type { MiniType };
 export type TaskResult = 'done' | 'failed' | 'moved' | 'storm';
 
-export interface TaskTarget { kind: TaskKind; moduleId: number; jobId: number | null; x: number; z: number; reach: number }
+export interface TaskTarget { kind: TaskKind; mini: MiniType; moduleId: number; jobId: number | null; x: number; z: number; reach: number }
 
-const MINI: Record<TaskKind, MiniType> = { repair: 'sequence', refill: 'gauge', clean: 'wipe', water: 'wipe' };
-export const HOLD_SECONDS = 2;
-const SEQ_LENGTH = 4;
-const GAUGE_NEED = 5, GAUGE_LIMIT = 16;
+export const HOLD_SECONDS = 1.2;
+const SEQ_LENGTH = 3;
+const GAUGE_NEED = 4, GAUGE_LIMIT = 14;
 export const GAUGE_ZONE: [number, number] = [0.52, 0.8];
-const WIPE_NEED = 7; // radians of look movement in total
+const WIPE_NEED = 5; // radians of look movement in total
 
 export class TaskRunner {
   stage: 'idle' | 'hold' | 'mini' = 'idle';
@@ -30,6 +31,7 @@ export class TaskRunner {
   private timer = 0;
   private wipeDir = 0;
   strokes = 0;
+  speed = 1; // engineering upgrades make this larger: shorter holds and mini-steps
 
   get active(): boolean { return this.stage !== 'idle'; }
 
@@ -49,7 +51,7 @@ export class TaskRunner {
       if (!target) { this.reset(); return null; }
       if (!this.target || this.target.moduleId !== target.moduleId || this.target.kind !== target.kind) { this.hold = 0; }
       this.target = target;
-      this.hold = Math.max(0, Math.min(1, this.hold + (holding ? dt / HOLD_SECONDS : -dt * 1.5)));
+      this.hold = Math.max(0, Math.min(1, this.hold + (holding ? (dt * this.speed) / HOLD_SECONDS : -dt * 1.5)));
       this.stage = this.hold > 0 ? 'hold' : 'idle';
       if (this.hold >= 1) this.startMini();
       return null;
@@ -61,11 +63,11 @@ export class TaskRunner {
     this.timer += dt;
     if (this.mini === 'gauge') {
       this.level = Math.max(0, Math.min(1, this.level + (holding ? 0.5 : -0.42) * dt));
-      if (this.level >= GAUGE_ZONE[0] && this.level <= GAUGE_ZONE[1]) this.progress += dt / GAUGE_NEED;
+      if (this.level >= GAUGE_ZONE[0] && this.level <= GAUGE_ZONE[1]) this.progress += (dt * this.speed) / GAUGE_NEED;
       if (this.timer > GAUGE_LIMIT && this.progress < 1) { this.reset(); return 'failed'; }
     } else if (this.mini === 'wipe') {
       const amount = Math.min(Math.abs(lookDX), 0.25);
-      this.progress += amount / WIPE_NEED;
+      this.progress += (amount * this.speed) / WIPE_NEED;
       const dir = Math.sign(lookDX);
       if (dir !== 0 && dir !== this.wipeDir && amount > 0.004) { this.wipeDir = dir; this.strokes++; }
     }
@@ -75,7 +77,7 @@ export class TaskRunner {
 
   private startMini(): void {
     this.stage = 'mini';
-    this.mini = MINI[this.target!.kind];
+    this.mini = this.target!.mini;
     this.progress = 0; this.timer = 0; this.mistakes = 0; this.index = 0; this.level = 0.2; this.strokes = 0; this.wipeDir = 0;
     this.order = Array.from({ length: SEQ_LENGTH }, () => 1 + Math.floor(Math.random() * 3));
     for (let i = 1; i < this.order.length; i++) if (this.order[i] === this.order[i - 1]) this.order[i] = (this.order[i] % 3) + 1;

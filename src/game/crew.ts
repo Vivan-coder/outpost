@@ -1,13 +1,14 @@
 import * as THREE from 'three';
-import type { ChoreId, LevelConfig, ModuleType, SimState } from '../sim/sim.ts';
+import type { LevelConfig, SimState, TaskId } from '../sim/sim.ts';
 import { createAstronaut, type Astronaut } from '../render/models';
 import { createTag } from '../render/building';
 import { heightAt } from '../render/terrain';
 import { resolve, type Blocker } from './collide';
+import { STATION, TASK_SPOT } from './layout';
 import type { World } from './world';
 import { t, type TextKey } from '../i18n/en';
 
-export type Activity = 'walking' | 'running' | 'watering' | 'wiping' | 'carrying' | 'tablet' | 'break' | 'sheltering' | 'waiting' | 'greeting';
+export type Activity = 'walking' | 'running' | 'watering' | 'wiping' | 'carrying' | 'tablet' | 'break' | 'sheltering' | 'waiting' | 'greeting' | 'exercising' | 'window';
 
 interface Stop { key: string; x: number; z: number; reach: number; inside: number; act: Activity; moduleId: number | null }
 interface Member {
@@ -15,20 +16,26 @@ interface Member {
   x: number; z: number; facing: number; anim: number;
   activity: Activity;
   goalKey: string; path: { x: number; z: number }[]; stop: Stop | null; arrived: boolean;
-  routineIndex: number; dwell: number; greet: number; greetCooldown: number;
+  routineIndex: number; dwell: number; greet: number; greetCooldown: number; startedInside: boolean;
 }
 
 const SPEED = 2.6;
 const SUITS = [0xff8a3d, 0x4fc3e8, 0xc77dff];
-const ROUTINE = ['garden', 'canteen', 'solar', 'workshop', 'life'] as const;
-const CHORE_STOP: Record<ChoreId, (typeof ROUTINE)[number]> = { tomatoes: 'garden', panels: 'solar', rocks: 'workshop', filters: 'life' };
+// By default the crew relax inside the station: they only go outside when sent.
+const ROUTINE = ['galley', 'tablet', 'exercise', 'window'] as const;
+// What a crew member looks like while doing each task.
+const TASK_ACT: Record<TaskId, Activity> = {
+  o2gen: 'tablet', water: 'carrying', co2: 'carrying', thermal: 'tablet', solar: 'wiping', greenhouse: 'watering',
+  exercise: 'exercising', medical: 'tablet', radmon: 'tablet', comms: 'tablet', regolith: 'carrying',
+};
 
-// Crew live their own day: they walk a routine between work spots, do a visible activity at each,
-// greet the player, take assigned chores, and run for the shelter in a storm.
+// Crew live in the habitat: they sit in the galley, read a tablet, work out and look out of the window.
+// The player sends them to a task from the crew menu; they walk there, do it for its full time, then return.
 export class Crew {
   members: Member[] = [];
 
   constructor(scene: THREE.Scene, sim: SimState, private cfg: LevelConfig, private blockers: Blocker[], private world: World) {
+    const hab = world.buildings.find((b) => b.type === 'habitat');
     sim.crew.forEach((_, i) => {
       const model = createAstronaut(SUITS[i % SUITS.length]);
       const tag = createTag();
@@ -37,12 +44,12 @@ export class Crew {
       const crate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), new THREE.MeshStandardMaterial({ color: 0xb58a4a, flatShading: true }));
       crate.position.set(0, 1.1, 0.5); crate.visible = false;
       model.group.add(crate);
-      const x = (i - 1) * 2.4, z = 11 + (i % 2) * 1.5;
+      const x = hab ? hab.x - 1.6 + i * 1.6 : i * 2, z = hab ? hab.z + 0.5 : 8;
       scene.add(model.group);
       this.members.push({
         model, crate, tag, x, z, facing: 0, anim: i * 1.7, activity: 'walking',
         goalKey: '', path: [], stop: null, arrived: false,
-        routineIndex: (i * 2) % ROUTINE.length, dwell: 0, greet: 0, greetCooldown: 4 + i * 3,
+        routineIndex: i % ROUTINE.length, dwell: 0, greet: 0, greetCooldown: 4 + i * 3, startedInside: true,
       });
     });
   }
@@ -51,7 +58,7 @@ export class Crew {
 
   safeCount(sim: SimState): number { return sim.crew.filter((c) => c.sheltered).length; }
 
-  private moduleStop(sim: SimState, type: ModuleType, act: Activity, m: Member, key: string): Stop | null {
+  private moduleStop(sim: SimState, type: string, act: Activity, m: Member, key: string): Stop | null {
     let best = null as null | { id: number; x: number; z: number }, bestScore = Infinity;
     for (const mod of sim.modules) {
       if (mod.type !== type) continue;
@@ -59,34 +66,44 @@ export class Crew {
       if (score < bestScore) { bestScore = score; best = mod; }
     }
     if (!best) return null;
-    return { key: `${key}:${best.id}`, x: best.x, z: best.z, reach: this.cfg.modules[type].radius + 1.0, inside: -1, act, moduleId: best.id };
+    return { key: `${key}:${best.id}`, x: best.x, z: best.z, reach: this.cfg.modules[type as 'solar'].radius + 1.0, inside: -1, act, moduleId: best.id };
+  }
+
+  // A standing spot inside a building.
+  private inside(type: 'habitat' | 'shelter', rel: { x: number; z: number }, key: string, act: Activity, reach = 0.35): Stop | null {
+    const idx = this.world.buildings.findIndex((b) => b.type === type);
+    if (idx < 0) return null;
+    const b = this.world.buildings[idx];
+    return { key, x: b.x + rel.x, z: b.z + rel.z, reach, inside: idx, act, moduleId: null };
   }
 
   private stopFor(sim: SimState, name: string, i: number, m: Member): Stop | null {
-    const w = this.world;
     switch (name) {
-      case 'garden': return this.moduleStop(sim, 'greenhouse', 'watering', m, name);
-      case 'solar': return this.moduleStop(sim, 'solar', 'wiping', m, name);
-      case 'life': return this.moduleStop(sim, 'lifeSupport', 'tablet', m, name);
-      case 'workshop': {
-        const r = this.cfg.rockPile;
-        return { key: name, x: r.x, z: r.z, reach: r.radius + 1.0, inside: -1, act: 'carrying', moduleId: null };
-      }
-      case 'canteen': {
-        const idx = w.buildings.findIndex((b) => b.type === 'habitat');
-        if (idx < 0) return null;
-        const b = w.buildings[idx];
+      case 'galley': {
         const a = 0.6 + i * 2.1; // seats around the table
-        return { key: name, x: b.x - b.r + 2.6 + Math.sin(a) * 1.3, z: b.z + 1.4 + Math.cos(a) * 1.3, reach: 0.35, inside: idx, act: 'break', moduleId: null };
+        return this.inside('habitat', { x: STATION.canteen.x + Math.sin(a) * 1.3, z: STATION.canteen.z + Math.cos(a) * 1.3 }, name, 'break');
       }
+      case 'tablet': return this.inside('habitat', { x: STATION.control.x + 1.3 * (i - 1) + 0.6, z: STATION.control.z + 1.4 }, name, 'tablet');
+      case 'exercise': return this.inside('habitat', TASK_SPOT.exercise, name, 'exercising');
+      case 'window': return this.inside('habitat', { x: STATION.window.x + (i - 1) * 1.2, z: STATION.window.z }, name, 'window');
       case 'shelter': {
-        const idx = w.buildings.findIndex((b) => b.type === 'shelter');
+        const idx = this.world.buildings.findIndex((b) => b.type === 'shelter');
         if (idx < 0) return null;
-        const b = w.buildings[idx];
+        const b = this.world.buildings[idx];
         return { key: name, x: b.x + (i - 1) * 1.7, z: b.z - 1.5 - (i === 1 ? 0.6 : 0), reach: 0.35, inside: idx, act: 'sheltering', moduleId: null };
       }
     }
-    return null;
+    // Otherwise it is a task id.
+    const task = this.cfg.tasks.find((tk) => tk.id === name);
+    if (!task) return null;
+    const act = TASK_ACT[task.id];
+    if (task.at === 'rockPile') {
+      const r = this.cfg.rockPile;
+      return { key: name, x: r.x, z: r.z, reach: r.radius + 1.0, inside: -1, act, moduleId: null };
+    }
+    if (task.at === 'habitat') return this.inside('habitat', TASK_SPOT[task.id], name, act);
+    if (task.at === 'shelter') return this.inside('shelter', TASK_SPOT[task.id], name, act);
+    return this.moduleStop(sim, task.at, act, m, name);
   }
 
   // Route through doorways: leave the building we are in, then enter the one we want.
@@ -111,10 +128,10 @@ export class Crew {
       let stop: Stop | null;
       const mode = sim.shelterCall ? 'shelter' : c.chore ? 'chore' : 'routine';
       if (mode === 'shelter') stop = this.stopFor(sim, 'shelter', i, m);
-      else if (mode === 'chore') stop = this.stopFor(sim, CHORE_STOP[c.chore!], i, m);
+      else if (mode === 'chore') stop = this.stopFor(sim, c.chore!, i, m);
       else {
         stop = this.stopFor(sim, ROUTINE[m.routineIndex], i, m);
-        if (!stop) { m.routineIndex = (m.routineIndex + 1) % ROUTINE.length; stop = this.stopFor(sim, 'workshop', i, m); }
+        if (!stop) { m.routineIndex = (m.routineIndex + 1) % ROUTINE.length; stop = this.stopFor(sim, 'window', i, m); }
       }
       const key = stop ? `${mode}:${stop.key}` : `${mode}:none`;
       if (key !== m.goalKey) {
@@ -122,7 +139,7 @@ export class Crew {
         m.path = stop ? this.route(m, stop) : [];
       }
 
-      // Stop and wave when the player walks up, unless there is a storm or a chore to do.
+      // Stop and wave when the player walks up, unless there is a storm or a task to do.
       const dPlayer = Math.hypot(px - m.x, pz - m.z);
       if (mode === 'routine' && !sim.storm && dPlayer < 3 && m.greetCooldown <= 0 && m.greet <= 0) { m.greet = 2.6; m.greetCooldown = 18; }
 
@@ -170,9 +187,10 @@ export class Crew {
       else if (m.arrived && m.stop) {
         m.activity = mode === 'chore' && targetBroken ? 'waiting' : m.stop.act;
         if (m.stop.moduleId !== null) m.facing = Math.atan2(m.stop.x - m.x, m.stop.z - m.z);
+        else if (m.stop.act === 'window' || m.stop.act === 'tablet') m.facing = Math.PI; // face the back wall
         if (mode === 'routine') {
           m.dwell += dt;
-          if (m.dwell > 8 + i * 1.5) { m.routineIndex = (m.routineIndex + 1) % ROUTINE.length; m.goalKey = ''; }
+          if (m.dwell > 10 + i * 2) { m.routineIndex = (m.routineIndex + 1) % ROUTINE.length; m.goalKey = ''; }
         }
       } else m.activity = 'waiting';
 
@@ -205,6 +223,13 @@ export class Crew {
       case 'wiping': aLx = -1.4; aRx = -1.4; aLz = -Math.sin(m.anim * 5) * 0.5; aRz = -Math.sin(m.anim * 5) * 0.5; break;
       case 'carrying': aLx = -1.15; aRx = -1.15; y += Math.abs(Math.sin(m.anim * 2)) * 0.04; break;
       case 'tablet': aLx = -0.95; aRx = -0.8 + Math.sin(m.anim * 6) * 0.08; break;
+      case 'exercising': {
+        const p = Math.sin(m.anim * 4);
+        legL = p * 0.8; legR = -p * 0.8; aLx = -p * 0.9; aRx = p * 0.9;
+        y += Math.abs(p) * 0.05;
+        break;
+      }
+      case 'window': aLx = s; aRx = -s; break;
       case 'break': case 'sheltering': legL = -1.5; legR = -1.5; y -= 0.4; aLx = -0.4 + s; aRx = -0.4 - s; break;
       case 'greeting': aRz = 2.5 + Math.sin(m.anim * 9) * 0.35; aLx = s; break;
       default: aLx = s; aRx = -s; if (storm) aLx = -2.6;

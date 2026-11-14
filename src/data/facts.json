@@ -1,0 +1,57 @@
+{
+  "_note": "Every fact below was read on the NASA page named in source_url on verified_on. Anything not on a page was left out. 'game' fields mark simplifications.",
+  "facts": {
+    "water90": {
+      "text": "The space station reclaims about 90% of the water its crew uses, including urine, sweat and breath moisture.",
+      "value": 90, "unit": "percent",
+      "source_url": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/recycling-water-and-air/",
+      "verified_on": "2026-11-14"
+    },
+    "bone1": {
+      "text": "Without precautions, an astronaut's weight-bearing bones become roughly 1% less dense for every month in space.",
+      "value": 1, "unit": "percent per month",
+      "source_url": "https://www.nasa.gov/missions/station/iss-research/counteracting-bone-and-muscle-loss-in-microgravity/",
+      "verified_on": "2026-11-14"
+    },
+    "exercise2h": {
+      "text": "Space station crews exercise for an average of two hours a day to protect their bones and muscles.",
+      "value": 2, "unit": "hours per day",
+      "source_url": "https://www.nasa.gov/missions/station/iss-research/counteracting-bone-and-muscle-loss-in-microgravity/",
+      "verified_on": "2026-11-14"
+    },
+    "moxie6": {
+      "text": "MOXIE on the Perseverance rover made oxygen from Mars air. Its design goal was 6 grams per hour, and it reached nearly 10.56 grams per hour at peak.",
+      "value": 6, "unit": "grams per hour (design goal)", "peak": 10.56,
+      "source_url": "https://science.nasa.gov/blog/moxie-sets-consecutive-personal-bests-and-mars-records-for-oxygen-production/",
+      "verified_on": "2026-11-14"
+    },
+    "dustPanels": {
+      "text": "Cleaning dusty solar panels to keep power up could be a very real job for future human explorers on Mars.",
+      "source_url": "https://science.nasa.gov/solar-system/planets/mars/10-things-massive-dust-storm-on-mars/",
+      "verified_on": "2026-11-14"
+    },
+    "dustOpportunity": {
+      "text": "In 2018 a dust storm that circled Mars blotted out the sunlight that the solar-powered Opportunity rover needs. The nuclear-powered Curiosity rover was largely unaffected.",
+      "source_url": "https://science.nasa.gov/solar-system/planets/mars/10-things-massive-dust-storm-on-mars/",
+      "verified_on": "2026-11-14"
+    },
+    "commsDelay": {
+      "text": "A message between Earth and Mars takes about 4 minutes one way when the planets are closest and about 24 minutes when they are farthest apart.",
+      "value": [4, 24], "unit": "minutes one way",
+      "source_url": "https://www.nasa.gov/centers-and-facilities/goddard/space-communications-7-things-you-need-to-know/",
+      "verified_on": "2026-11-14"
+    },
+    "gravityMars": {
+      "text": "Gravity on the surface of Mars is 3.73 m/s2, which is 0.38 times Earth's.",
+      "value": 0.38, "unit": "x Earth gravity",
+      "source_url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html",
+      "verified_on": "2026-11-14"
+    },
+    "gravityMoon": {
+      "text": "Gravity on the surface of the Moon is 1.62 m/s2, which is 0.165 times Earth's.",
+      "value": 0.165, "unit": "x Earth gravity",
+      "source_url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html",
+      "verified_on": "2026-11-14"
+    }
+  }
+}

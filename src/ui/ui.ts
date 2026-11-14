@@ -1,4 +1,5 @@
-import { caps, stars, type ChoreId, type LevelConfig, type ModuleType, type SimState } from '../sim/sim.ts';
+import { caps, crewOptions, goalProgress, stars, taskSpeed, upgradeCost, type LevelConfig, type ModuleType, type Reward, type SimState, type TaskId, type UpgradeKey } from '../sim/sim.ts';
+import factsJson from '../data/facts.json' with { type: 'json' };
 import { solarEvent } from '../data/moon.ts';
 import { apollo, FULL_METER_REM } from '../data/apollo.ts';
 import meta from '../data/solar-event.meta.json' with { type: 'json' };
@@ -11,7 +12,8 @@ export interface UiHandlers {
   cancelPlace(): void;
   actDown(): void; // touch action button pressed
   seqPress(n: number): void;
-  assign(crewIndex: number, chore: ChoreId | null): void;
+  assign(crewIndex: number, task: TaskId | null): void;
+  upgrade(key: UpgradeKey): void;
   callShelter(): void;
   toggleLanguage(): void;
   restart(): void;
@@ -33,12 +35,25 @@ const utc = (iso: string) => iso.replace('T', ' ').replace('Z', '');
 // Turns "[E]" in a translated string into a key cap. Text is ours, never user input.
 const keycaps = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\[([^\]]+)\]/g, '<kbd>$1</kbd>');
 
-const BARS: { key: 'power' | 'air' | 'food' | 'radiation'; color: string }[] = [
+const BARS: { key: 'power' | 'air' | 'food' | 'radiation' | 'health'; color: string }[] = [
   { key: 'power', color: '#ffd24a' },
   { key: 'air', color: '#5ad1ff' },
   { key: 'food', color: '#7be07b' },
+  { key: 'health', color: '#c77dff' },
   { key: 'radiation', color: '#ff6b5a' },
 ];
+const UPGRADES: UpgradeKey[] = ['engineering', 'solar', 'lifeSupport', 'greenhouse', 'battery', 'tank', 'station'];
+export const factText = (id: string | null): string | null => (id && (factsJson.facts as Record<string, unknown>)[id] ? t(('fact_' + id) as TextKey) : null);
+
+const scaled = (r: Reward, k: number): Reward => ({ ...r, power: r.power && Math.round(r.power * k), air: r.air && Math.round(r.air * k), food: r.food && Math.round(r.food * k), health: r.health && Math.round(r.health * k), research: r.research && Math.round(r.research * k) });
+function gainText(r: Reward): string {
+  const parts: string[] = [];
+  const add = (key: TextKey, n: number | undefined) => { if (n) parts.push(t(key, { n })); };
+  add('gainPower', r.power); add('gainAir', r.air); add('gainFood', r.food); add('gainHealth', r.health);
+  add('gainRadiation', r.radiation); add('gainParts', r.parts); add('gainResearch', r.research);
+  return parts.join(' · ');
+}
+
 const BUILDABLE: ModuleType[] = ['solar', 'battery', 'lifeSupport', 'tank', 'greenhouse'];
 
 export function createUi(cfg: LevelConfig, h: UiHandlers) {
@@ -50,11 +65,14 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     fill.style.background = b.color;
     track.appendChild(fill);
     const value = el('span', 'value');
-    row.append(el('span', 'label', t(b.key)), track, value);
+    row.append(el('span', 'label', t(b.key === 'health' ? 'res_health' : b.key)), track, value);
     $('bars').appendChild(row);
     bars[b.key] = { fill, value, row, last: -1 };
   }
   $('partsLabel').textContent = t('parts');
+  $('resLabel').textContent = t('res_research');
+  $('btnFF').textContent = t('btnFF');
+  $('btnSkip').textContent = t('btnSkip');
   $('buildBtn').textContent = t('btnBuild');
   $('crewBtn').textContent = t('btnCrew');
   $('jump').textContent = t('btnJump');
@@ -68,8 +86,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   const menu = $('menu'), menuCard = $('menuCard'), overlay = $('overlay'), overlayCard = $('overlayCard');
   const banner = $('banner'), shelterBtn = $('shelterBtn'), storm = $('storm');
   const actBtn = $('actBtn'), taskBox = $('task'), seq = $('seq'), gauge = $('gauge');
-  let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = '', lastPrompt = '', lastTask = '';
-  let menuKind: 'build' | 'crew' | 'pause' | null = null;
+  let flashText = '', flashUntil = 0, lastBanner = '', lastJobs = '', lastPrompt = '', lastTask = '', lastGoals = '';
+  let menuKind: 'build' | 'crew' | 'pause' | 'upgrade' | null = null;
   let actHeld = false;
 
   const press = (id: string, fn: () => void) => $(id).addEventListener('click', (e) => { e.stopPropagation(); fn(); });
@@ -150,8 +168,21 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       setBar('power', sim.power, cap.power, true);
       setBar('air', sim.air, cap.air, true);
       setBar('food', sim.food, cap.food, true);
+      setBar('health', sim.health, 100, true);
       setBar('radiation', sim.radiation, 100, false);
       $('partsValue').textContent = String(sim.parts);
+      $('resValue').textContent = String(sim.research);
+      const sig = cfg.goals.map((g) => (sim.goalsDone.includes(g.id) ? '1' : Math.floor(goalProgress(sim, cfg, g) / Math.max(1, g.target / 10)))).join(',');
+      if (sig !== lastGoals) {
+        lastGoals = sig;
+        const box = $('goals');
+        box.replaceChildren(el('b', '', t('goalsTitle')));
+        for (const g of cfg.goals) {
+          const done = sim.goalsDone.includes(g.id);
+          const n = g.kind.endsWith('Streak') ? Math.round(g.target / cfg.solLength) : g.target;
+          box.appendChild(el('div', done ? 'done' : '', (done ? '★ ' : '☆ ') + t(('goal_' + g.id) as TextKey, { n })));
+        }
+      }
       $('sol').textContent = t('sol', { n: Math.floor(sim.time / cfg.solLength) + 1 });
       $('timeLeft').textContent = t('timeLeft', { t: mmss(Math.max(0, cfg.missionLength - sim.time)) });
 
@@ -225,8 +256,11 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         taskBox.style.display = on ? 'block' : 'none';
         if (on) {
           const kind = run.target!.kind;
-          $('taskTitle').textContent = t(`taskTitle_${kind}` as TextKey);
-          const hintKey = run.mini === 'sequence' ? 'miniSeq' : run.mini === 'gauge' ? 'miniGauge' : kind === 'water' ? 'miniWater' : 'miniWipe';
+          $('taskTitle').textContent = kind === 'repair' ? t('taskTitle_repair') : t(('task_' + kind) as TextKey);
+          const why = kind === 'repair' ? null : factText(cfg.tasks.find((tk) => tk.id === kind)?.why ?? null);
+          $('taskWhy').textContent = why ? t('whyTitle') + ': ' + why : '';
+          $('taskWhy').style.display = why ? 'block' : 'none';
+          const hintKey = run.mini === 'sequence' ? 'miniSeq' : run.mini === 'gauge' ? 'miniGauge' : kind === 'greenhouse' ? 'miniWater' : 'miniWipe';
           $('taskHint').innerHTML = keycaps(t(`${hintKey}${touch ? 'Touch' : ''}` as TextKey));
           seq.style.display = run.mini === 'sequence' ? 'flex' : 'none';
           gauge.style.display = run.mini === 'gauge' ? 'block' : 'none';
@@ -283,7 +317,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       const who = () => {
         menuCard.replaceChildren(el('h2', '', t('crewPick')));
         sim.crew.forEach((c, i) => {
-          const doing = c.chore ? t(`chore_${c.chore}` as TextKey) : t(`act_${activities[i]}` as TextKey);
+          const doing = c.chore ? t(`task_${c.chore}` as TextKey) : t(`act_${activities[i]}` as TextKey);
           menuCard.appendChild(option(i + 1, c.name, doing, '', () => what(i), !!c.chore));
         });
         menuCard.append(closer(), el('p', 'keys', t('menuKeys')));
@@ -292,14 +326,42 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       const what = (i: number) => {
         const c = sim.crew[i];
         menuCard.replaceChildren(el('h2', '', t('crewDo', { name: c.name })));
-        cfg.chores.forEach((ch, n) => {
-          menuCard.appendChild(option(n + 1, t(`chore_${ch.id}` as TextKey), t(`choreGain_${ch.id}` as TextKey), '', () => { h.assign(i, ch.id); closeMenu(); }, c.chore === ch.id));
+        // Tasks that are waiting as jobs come first, then the rest.
+        const waiting = new Set(sim.jobs.map((j) => j.task));
+        const list = crewOptions(sim, cfg).sort((x, y) => Number(waiting.has(y.id)) - Number(waiting.has(x.id))).slice(0, 5);
+        if (list.length === 0) menuCard.appendChild(el('p', 'note', t('crewNoOptions')));
+        list.forEach((tk, n) => {
+          const secs = Math.round(tk.seconds / taskSpeed(sim, cfg));
+          const gain = gainText(scaled(tk.reward, cfg.crewRewardShare));
+          menuCard.appendChild(option(n + 1, t(`task_${tk.id}` as TextKey), t('crewTaskInfo', { s: secs, gain }), '', () => { h.assign(i, tk.id); closeMenu(); }, c.chore === tk.id));
         });
-        menuCard.appendChild(option(cfg.chores.length + 1, t('choreRest'), '', '', () => { h.assign(i, null); closeMenu(); }, c.chore === null));
+        menuCard.appendChild(option(list.length + 1, t('choreRest'), '', '', () => { h.assign(i, null); closeMenu(); }, c.chore === null));
         menuCard.append(closer(t('btnBack'), only === null ? who : closeMenu), el('p', 'keys', t('menuKeys')));
         focusFirst(menuCard);
       };
       if (only === null) who(); else what(only);
+      menu.classList.add('on');
+    },
+
+    // Engineering console: spend research points on machine levels (Mk1 to Mk3).
+    openUpgrades(sim: SimState): void {
+      menuKind = 'upgrade';
+      const draw = () => {
+        menuCard.replaceChildren(el('h2', '', t('upTitle')), el('p', '', t('upResearch', { n: sim.research })));
+        UPGRADES.forEach((key, i) => {
+          const lvl = sim.levels[key];
+          const cost = upgradeCost(sim, cfg, key);
+          const sub = t(`upDesc_${key}_${cost === null ? 3 : lvl + 1}` as TextKey);
+          const title = `${t(`up_${key}` as TextKey)} · ${t('upLevel', { n: lvl })}`;
+          const b = option(i + 1, title, sub, cost === null ? t('upMax') : t('upCost', { n: cost }), () => { h.upgrade(key); draw(); });
+          b.disabled = cost === null || sim.research < cost;
+          menuCard.appendChild(b);
+        });
+        if (UPGRADES.every((k) => { const c = upgradeCost(sim, cfg, k); return c === null || sim.research < c; })) menuCard.appendChild(el('p', 'note', t('upNeed')));
+        menuCard.append(closer(), el('p', 'keys', t('menuKeys')));
+        focusFirst(menuCard);
+      };
+      draw();
       menu.classList.add('on');
     },
 
@@ -372,7 +434,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       const won = sim.status === 'won';
       overlayCard.replaceChildren(el('h2', '', t(won ? 'winTitle' : 'loseTitle')));
       if (won) {
-        const n = stars(sim, cfg);
+        const n = stars(sim);
         overlayCard.appendChild(el('div', 'stars', '★'.repeat(n) + '☆'.repeat(3 - n)));
         overlayCard.appendChild(el('p', '', t('winBody', { rank: t(`rank${n}` as TextKey) })));
       } else {
@@ -390,7 +452,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         }
         overlayCard.appendChild(el('p', 'why', why));
       }
-      overlayCard.appendChild(el('p', '', `${t('reportTitle')}: ${t('reportStats', { t: mmss(sim.time), fixes: sim.stats.fixes + sim.stats.jobs, builds: sim.stats.builds })}`));
+      overlayCard.appendChild(el('p', '', `${t('reportTitle')}: ${t('reportStats', { t: mmss(sim.time), fixes: sim.stats.fixes + sim.stats.jobs + sim.stats.crewTasks, builds: sim.stats.builds })}`));
       overlayCard.appendChild(drawChart(sim, cfg));
       overlayCard.appendChild(el('p', 'src', t('creditsLine')));
       const b = el('button', 'main', t('btnAgain'));
@@ -422,12 +484,12 @@ function drawChart(sim: SimState, cfg: LevelConfig): HTMLCanvasElement {
     g.fillText(String(p), L - 5, y(p) + 4);
   }
   g.textAlign = 'left';
-  BARS.forEach((b, i) => {
+  BARS.filter((x) => x.key !== 'health').forEach((b, i) => {
     g.strokeStyle = b.color; g.lineWidth = 2.5; g.beginPath();
     sim.history.forEach((row, n) => { const px = x(row[0]), py = y(row[i + 1]); if (n) g.lineTo(px, py); else g.moveTo(px, py); });
     g.stroke();
     g.fillStyle = b.color;
-    g.fillText(t(b.key), L + i * 150, 14);
+    g.fillText(t(b.key === 'health' ? 'res_health' : b.key), L + i * 140, 14);
   });
   return c;
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { t, type TextKey } from '../i18n/en';
+import { STATION } from '../game/layout';
 
 // Enterable round buildings (station and radiation shelter): floor, wall with a doorway on +z,
 // dome roof, sliding door, interior light and labelled props. Original art from primitives.
@@ -104,23 +105,45 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
     box(group, 0.7, 0.7, 0.7, std(0xb58a4a), 2.7, 1.3, 1.1);
     label(group, 'lbl_supplies', 2.8, 2.1, 1.0);
   } else {
-    box(group, 2.4, 1.0, 0.7, dark, 0, 0.5, -r + 1.0);
-    box(group, 2.0, 0.8, 0.1, screen, 0, 1.5, -r + 0.75);
-    label(group, 'lbl_control', 0, 2.4, -r + 0.9);
+    const S = STATION;
+    // Control / comms desk and engineering (upgrade) console on the back wall
+    box(group, 1.9, 1.0, 0.7, dark, S.control.x, 0.5, S.control.z);
+    box(group, 1.6, 0.7, 0.1, screen, S.control.x, 1.45, S.control.z - 0.3);
+    label(group, 'lbl_control', S.control.x, 2.4, S.control.z);
+    box(group, 1.9, 1.0, 0.7, std(0x2a3550), S.engineering.x, 0.5, S.engineering.z);
+    box(group, 1.6, 0.7, 0.1, std(0x2a2a10, { emissive: 0xffc840, emissiveIntensity: 1.1 }), S.engineering.x, 1.45, S.engineering.z - 0.3);
+    label(group, 'lbl_engineering', S.engineering.x, 2.4, S.engineering.z, '#ffd24a');
+    // Oxygen unit and water tank
     const o2 = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 1.9, 8), std(0x4fc3e8));
-    o2.position.set(-r + 1.5, 0.95, -1.8); group.add(o2);
-    label(group, 'lbl_oxygen', -r + 1.5, 2.4, -1.8);
+    o2.position.set(S.o2.x, 0.95, S.o2.z); group.add(o2);
+    label(group, 'lbl_oxygen', S.o2.x, 2.4, S.o2.z);
     const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.6, 1.1, 3, 8), std(0x3d6fd8));
-    tank.position.set(r - 1.5, 1.15, -1.8); group.add(tank);
-    label(group, 'lbl_water', r - 1.5, 2.4, -1.8);
-    box(group, 2.0, 0.35, 0.9, std(0xc9743a), r - 2.0, 0.5, 1.6);
-    box(group, 2.0, 0.35, 0.9, std(0xc9743a), r - 2.0, 1.45, 1.6);
-    box(group, 0.12, 1.6, 0.12, dark, r - 1.1, 0.8, 2.0);
-    label(group, 'lbl_bunks', r - 2.0, 2.3, 1.6);
+    tank.position.set(S.water.x, 1.15, S.water.z); group.add(tank);
+    label(group, 'lbl_water', S.water.x, 2.4, S.water.z);
+    // Bunks
+    box(group, 2.0, 0.35, 0.9, std(0xc9743a), S.bunks.x, 0.5, S.bunks.z);
+    box(group, 2.0, 0.35, 0.9, std(0xc9743a), S.bunks.x, 1.45, S.bunks.z);
+    box(group, 0.12, 1.6, 0.12, dark, S.bunks.x + 0.9, 0.8, S.bunks.z + 0.4);
+    label(group, 'lbl_bunks', S.bunks.x, 2.3, S.bunks.z);
+    // Galley table
     const table = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.12, 10), std(0xe8e2d0));
-    table.position.set(-r + 2.6, 0.8, 1.4); group.add(table);
-    box(group, 0.2, 0.75, 0.2, dark, -r + 2.6, 0.4, 1.4);
-    label(group, 'lbl_canteen', -r + 2.6, 2.2, 1.4);
+    table.position.set(S.canteen.x, 0.8, S.canteen.z); group.add(table);
+    box(group, 0.2, 0.75, 0.2, dark, S.canteen.x, 0.4, S.canteen.z);
+    label(group, 'lbl_canteen', S.canteen.x, 2.2, S.canteen.z);
+    // Exercise machine: a treadmill-style belt with handrails
+    box(group, 0.9, 0.18, 1.8, dark, S.exercise.x, 0.12, S.exercise.z);
+    box(group, 0.9, 0.9, 0.12, dark, S.exercise.x, 1.0, S.exercise.z - 0.9);
+    box(group, 0.7, 0.4, 0.08, screen, S.exercise.x, 1.25, S.exercise.z - 0.83);
+    label(group, 'lbl_exercise', S.exercise.x, 2.2, S.exercise.z - 0.5);
+    // Medical corner: a bed and a scanner arch
+    box(group, 0.9, 0.35, 1.9, std(0xdfe8f2), S.medical.x, 0.4, S.medical.z);
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.09, 6, 14, Math.PI), std(0x6fd3a8));
+    arch.position.set(S.medical.x, 0.55, S.medical.z); arch.rotation.y = Math.PI / 2; group.add(arch);
+    label(group, 'lbl_medical', S.medical.x, 2.0, S.medical.z);
+    // Cupola-style window on the back wall
+    const win = new THREE.Mesh(new THREE.CircleGeometry(0.85, 14), std(0x0a1430, { emissive: 0x1a2a66, emissiveIntensity: 0.9 }));
+    win.position.set(S.window.x, 1.7, S.window.z - 1.4); group.add(win);
+    label(group, 'lbl_window', S.window.x, 2.75, S.window.z - 1.3, '#9fe0ff', 0.6);
   }
   return { group, wall, roof, door, doorHalf };
 }

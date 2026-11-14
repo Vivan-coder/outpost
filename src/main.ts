@@ -6,13 +6,16 @@ import { Player, type Blocker } from './game/player';
 import { World, type BuildingView } from './game/world';
 import { Crew } from './game/crew';
 import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
-import { assign, build, canPlace, completeJob, createSim, fix, setShelter, step, type ModuleType } from './sim/sim.ts';
+import { assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, type ModuleType, type SimState } from './sim/sim.ts';
+import { STATION, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi } from './ui/ui';
+import { stars as starsOf } from './sim/sim.ts';
 import { sfx, unlockAudio } from './audio/sfx';
 import { t, setLanguage, type TextKey } from './i18n/en';
 import { ar } from './i18n/ar';
 
+const SAVE_KEY = 'outpost.save';
 // Language is chosen before any text is read. Switching reloads the page.
 let lang = 'en';
 try { lang = localStorage.getItem('outpost.lang') ?? 'en'; } catch { /* storage blocked: stay in English */ }
@@ -52,8 +55,11 @@ while (sim.time < skipTo && sim.status === 'running') step(sim, level, 1 / level
 sim.outbox.length = 0;
 // Testing aids: ?fast=8 runs the game 8 times faster; ?debug exposes the game state on window.
 const params = new URLSearchParams(location.search);
-const fastForward = Math.max(1, Math.min(40, Number(params.get('fast')) || 1));
+let ffMul = Math.max(1, Math.min(40, Number(params.get('fast')) || 1));
 
+const saved = loadSave();
+const legacyResearch = Math.min(3, saved.goals.length);
+sim.research += legacyResearch;
 const blockers: Blocker[] = [];
 const world = new World(scene, blockers, level);
 world.sync(sim);
@@ -67,6 +73,7 @@ if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, w
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }
   | { type: 'door'; view: BuildingView }
+  | { type: 'console' }
   | { type: 'crew'; index: number };
 
 let placing: ModuleType | null = null;
@@ -74,6 +81,18 @@ let placeX = 0, placeZ = 0, placeOk = false;
 let target: Target | null = null;
 let clock = 0; // seconds of unpaused play, for banners and animation
 let skyMix = 0, sirenAt = 0, holdTick = 0, lastBot = '';
+
+// Saved progress: past goals give a few bonus research points at the start of the next mission.
+interface Save { plays: number; bestStars: number; goals: string[] }
+function loadSave(): Save {
+  try { const v = JSON.parse(localStorage.getItem(SAVE_KEY) ?? 'null'); if (v && Array.isArray(v.goals)) return v as Save; } catch { /* storage blocked or corrupt */ }
+  return { plays: 0, bestStars: 0, goals: [] };
+}
+function saveProgress(sim: SimState): void {
+  const old = loadSave();
+  const next: Save = { plays: old.plays + 1, bestStars: Math.max(old.bestStars, starsOf(sim)), goals: Array.from(new Set([...old.goals, ...sim.goalsDone])) };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(next)); } catch { /* storage blocked */ }
+}
 
 const modName = (type: ModuleType) => t(`mod_${type}` as TextKey);
 const isTouch = () => input.state.isTouch;
@@ -101,12 +120,15 @@ const ui = createUi(level, {
   cancelPlace() { placing = null; },
   actDown: () => actTap(),
   seqPress: (n) => seqPress(n),
-  assign(i, chore) {
-    assign(sim, i, chore);
-    if (!chore) return;
-    const def = level.chores.find((c) => c.id === chore)!;
-    if (def.at !== 'rockPile' && !sim.modules.some((m) => m.type === def.at)) ui.toast(t('crewNoModule', { name: sim.crew[i].name }), 'bad');
-    else ui.toast(t('assigned', { name: sim.crew[i].name, chore: t(`chore_${chore}` as TextKey) }), 'good');
+  assign(i, task) {
+    assign(sim, level, i, task);
+    if (task) ui.toast(t('assigned', { name: sim.crew[i].name, chore: t(`task_${task}` as TextKey) }), 'good');
+  },
+  upgrade(key) {
+    if (!upgrade(sim, level, key)) { ui.toast(t('upNeed'), 'bad'); return; }
+    sfx.build();
+    world.pulseType(sim, key === 'station' ? 'habitat' : key);
+    ui.toast(t('upDone', { name: t(`up_${key}` as TextKey), n: sim.levels[key] }), 'good');
   },
   callShelter() { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
   toggleLanguage: switchLanguage,
@@ -136,17 +158,28 @@ function pickTarget(): Target | null {
     if ((dx * fx + dz * fz) / (d || 1) < 0.2 && d > close) return;
     if (d + bias < bestScore) { bestScore = d + bias; best = make(); }
   };
+  const mk = (kind: TaskKind, mini: TaskTarget['mini'], moduleId: number, jobId: number | null, x: number, z: number, reach: number): TaskTarget => ({ kind, mini, moduleId, jobId, x, z, reach });
   for (const m of sim.modules) {
     if (m.type === 'habitat' || m.type === 'shelter') continue;
     const r = level.modules[m.type].radius;
     const job = sim.jobs.find((j) => j.moduleId === m.id);
     if (!m.broken && !job) continue;
-    const kind: TaskKind = m.broken ? 'repair' : job!.kind;
+    const def = job ? level.tasks.find((tk) => tk.id === job.task)! : null;
     consider(m.x, m.z, r + 3.2, r + 1.5, m.broken ? -1 : 0, () => ({
       type: 'task', name: modName(m.type),
-      task: { kind, moduleId: m.id, jobId: m.broken ? null : job!.id, x: m.x, z: m.z, reach: r + 3.2 },
+      task: m.broken ? mk('repair', 'sequence', m.id, null, m.x, m.z, r + 3.2) : mk(def!.id, def!.mini, m.id, job!.id, m.x, m.z, r + 3.2),
     }));
   }
+  // Jobs inside the station and the shelter stand at fixed spots in front of the equipment.
+  for (const job of sim.jobs) {
+    const m = sim.modules.find((mod) => mod.id === job.moduleId);
+    if (!m || (m.type !== 'habitat' && m.type !== 'shelter')) continue;
+    const spot = TASK_SPOT[job.task];
+    const def = level.tasks.find((tk) => tk.id === job.task)!;
+    consider(m.x + spot.x, m.z + spot.z, 2.2, 1.4, 0, () => ({ type: 'task', name: modName(m.type), task: mk(def.id, def.mini, m.id, job.id, m.x + spot.x, m.z + spot.z, 2.2) }));
+  }
+  const hab = world.buildings.find((v) => v.type === 'habitat');
+  if (hab) consider(hab.x + STATION.engineering.x, hab.z + STATION.engineering.z + 1.2, 2.4, 1.4, 0.2, () => ({ type: 'console' }));
   const door = world.doorNear(px, pz);
   if (door) consider(door.x, door.z + door.r, 2.6, 1.6, 0.5, () => ({ type: 'door', view: door }));
   if (!sim.storm) crew.members.forEach((m, index) => consider(m.x, m.z, 2.8, 0, 0.3, () => ({ type: 'crew', index })));
@@ -162,6 +195,8 @@ function actTap(): void {
     ui.toast(t(open ? 'doorOpened' : 'doorClosed'));
   } else if (target.type === 'crew') {
     openCrew(target.index);
+  } else if (target.type === 'console') {
+    unlockPointer(); sfx.click(); ui.openUpgrades(sim);
   }
 }
 
@@ -171,7 +206,7 @@ function finishTask(tg: TaskTarget, result: TaskResult): void {
     if (tg.kind === 'repair') { if (m) fix(sim, m.id); } else if (tg.jobId !== null) completeJob(sim, level, tg.jobId);
     world.pulse(tg.moduleId);
     sfx.fix();
-    ui.toast(t(`taskDone_${tg.kind}` as TextKey, { name: m ? modName(m.type) : '' }), 'good');
+    ui.toast(tg.kind === 'repair' ? t('taskDone_repair', { name: m ? modName(m.type) : '' }) : t('taskDone', { task: t(`task_${tg.kind}` as TextKey) }), 'good');
   } else {
     if (result === 'failed') sfx.broke();
     ui.toast(t(result === 'failed' ? 'taskFailed' : result === 'storm' ? 'taskStorm' : 'taskMoved'), 'bad');
@@ -206,6 +241,8 @@ addEventListener('keydown', (e) => {
     case 'Tab': openCrew(); break;
     case 'KeyG': if (sim.storm?.phase === 'warning') byId('shelterBtn').click(); break;
     case 'KeyH': if (lastBot) ui.toast(lastBot, 'bot'); break;
+    case 'KeyF': toggleFF(); break;
+    case 'KeyK': skipAhead(); break;
     case 'Escape': if (placing) placing = null; else openPause(); break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Numpad1': case 'Numpad2': case 'Numpad3':
       seqPress(Number(e.code.slice(-1)));
@@ -213,6 +250,8 @@ addEventListener('keydown', (e) => {
   }
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
+byId('btnFF').addEventListener('click', () => toggleFF());
+byId('btnSkip').addEventListener('click', () => skipAhead());
 addEventListener('blur', () => keys.clear());
 // Esc while the mouse is captured only releases the mouse; treat that as "pause".
 document.addEventListener('pointerlockchange', () => {
@@ -258,10 +297,13 @@ function handleEvents(): void {
       }
       case 'job': {
         const job = sim.jobs.find((j) => j.id === e.id);
-        if (job) { sfx.part(); ui.toast(t('jobNew', { job: t(`job_${job.kind}` as TextKey) })); }
+        if (job) { sfx.part(); ui.toast(t('jobNew', { job: t(`task_${job.task}` as TextKey) })); }
         break;
       }
-      case 'choreDone': ui.toast(t('choreDone', { name: sim.crew[e.crew].name, chore: t(`chore_${e.chore}` as TextKey) }), 'good'); break;
+      case 'choreDone': sfx.part(); ui.toast(t('choreDone', { name: sim.crew[e.crew].name, chore: t(`task_${e.task}` as TextKey) }), 'good'); break;
+      case 'upgrade': break; // the console handles its own feedback
+      case 'autoRepair': { const m = sim.modules.find((mod) => mod.id === e.id); sfx.fix(); if (m) ui.toast(t('autoRepaired', { name: modName(m.type) }), 'good'); break; }
+      case 'goal': sfx.win(); ui.toast(t('goalDone', { goal: t(`goal_${e.id}` as TextKey, { n: goalN(e.id) }) }), 'good'); break;
       case 'stormWarn': sfx.alarm(); sirenAt = clock + 12; bot('botStorm'); break;
       case 'stormStart': {
         sfx.alarm();
@@ -298,11 +340,11 @@ function handleEvents(): void {
         for (let i = 0; i < 5; i++) world.meteorAt((Math.random() - 0.5) * 70, (Math.random() - 0.5) * 70);
         break;
       }
-      case 'part': sfx.part(); ui.toast(t('partFound'), 'good'); break;
       case 'end': {
         unlockPointer();
         placing = null;
         if (sim.status === 'won') sfx.win(); else sfx.lose();
+        saveProgress(sim);
         ui.end(sim, () => location.reload());
         break;
       }
@@ -319,8 +361,11 @@ function updatePrompt(): void {
   }
   if (!target || placing) { ui.setPrompt(null, null); return; }
   if (target.type === 'task') {
-    const action = t(`do_${target.task.kind}` as TextKey, { name: target.name });
-    ui.setPrompt(touch ? t('promptHoldTouch', { action }) : t('promptHold', { key: 'E', action }), t(`btnAct_${target.task.kind}` as TextKey));
+    const action = t(target.task.kind === 'repair' ? 'do_repair' : (`do_${target.task.kind}` as TextKey), { name: target.name });
+    ui.setPrompt(touch ? t('promptHoldTouch', { action }) : t('promptHold', { key: 'E', action }), t(target.task.kind === 'repair' ? 'btnAct_repair' : 'btnAct_task'));
+  } else if (target.type === 'console') {
+    const action = t('do_console');
+    ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t('btnAct_console'));
   } else {
     const action = target.type === 'door'
       ? t(target.view.blocker.ring!.open ? 'do_closeDoor' : 'do_openDoor')
@@ -332,8 +377,24 @@ function updatePrompt(): void {
 function jobList(): { text: string; urgent: boolean }[] {
   const out: { text: string; urgent: boolean }[] = [];
   for (const m of sim.modules) if (m.broken) out.push({ text: t('job_repair', { name: modName(m.type) }), urgent: true });
-  for (const j of sim.jobs) out.push({ text: t(`job_${j.kind}` as TextKey), urgent: false });
+  for (const j of sim.jobs) out.push({ text: t(`task_${j.task}` as TextKey), urgent: false });
   return out;
+}
+
+const goalN = (id: string) => { const g = level.goals.find((x) => x.id === id)!; return g.kind.endsWith('Streak') ? Math.round(g.target / level.solLength) : g.target; };
+// Fast-forward and skip are for waiting around: they are off while anything is urgent.
+const urgent = () => !!sim.storm || sim.modules.some((m) => m.broken) || sim.stormIndex < level.storms.length && level.storms[sim.stormIndex].warnAt - sim.time < 15;
+function toggleFF(): void {
+  if (ffMul > 1) { ffMul = 1; byId('btnFF').classList.remove('on'); ui.toast(t('ffOff')); return; }
+  if (urgent()) { ui.toast(t('ffBlocked'), 'bad'); return; }
+  ffMul = 3; byId('btnFF').classList.add('on'); ui.toast(t('ffOn'));
+}
+function skipAhead(): void {
+  if (urgent() || ui.blocking()) { ui.toast(t('skipBlocked'), 'bad'); return; }
+  const until = sim.time + 40;
+  while (sim.time < until && sim.status === 'running' && sim.outbox.length === 0 && !urgent()) step(sim, level, 1 / level.tickHz);
+  handleEvents(); ui.update(sim, clock, crew.safeCount(sim)); ui.setJobs(jobList());
+  ui.toast(t('skipDone'));
 }
 
 const TICK = 1 / level.tickHz;
@@ -350,16 +411,19 @@ renderer.setAnimationLoop((now) => {
   const dt = Math.min(rawDt, 0.05);
   const paused = ui.blocking() || sim.status !== 'running';
 
-  for (let rep = paused ? fastForward : 0; rep < fastForward; rep++) {
+  if (ffMul > 1 && urgent()) { ffMul = 1; byId('btnFF').classList.remove('on'); }
+  const reps = paused ? 0 : ffMul;
+  for (let rep = 0; rep < reps; rep++) {
     if (ui.blocking() || sim.status !== 'running') break;
     clock += dt;
-    const lookDX = input.state.lookDX;
-    player.update(dt, input.state, keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    const inp = rep === 0 ? input.state : { ...input.state, lookDX: 0, lookDY: 0, jump: false };
+    const lookDX = inp.lookDX;
+    player.update(dt, inp, keys.has('ShiftLeft') || keys.has('ShiftRight'));
     const px = player.pos.x, pz = player.pos.z;
 
     // Only the shelter stops the radiation; the station's thin walls stop half.
     const inside = world.buildingAt(px, pz);
-    sim.playerExposure = inside < 0 ? 1 : world.buildings[inside].type === 'shelter' ? 0 : 0.5;
+    sim.playerExposure = inside < 0 ? 1 : world.buildings[inside].type === 'shelter' ? 0 : stationExposure(sim, level);
     crew.update(dt, sim, px, pz);
 
     simAcc += dt;
@@ -383,6 +447,7 @@ renderer.setAnimationLoop((now) => {
     if (runner.stage !== 'mini') target = placing ? null : pickTarget();
     const holding = keys.has('KeyE') || ui.actHeld();
     const tg = runner.target;
+    runner.speed = 1 / taskSpeed(sim, level);
     const result = runner.update(dt, holding, lookDX, target?.type === 'task' ? target.task : null, px, pz);
     if (result && tg) finishTask(tg, result);
     if (runner.stage === 'hold' && holding) { holdTick -= dt; if (holdTick <= 0) { holdTick = 0.22; sfx.click(); } }
