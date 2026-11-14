@@ -2,7 +2,7 @@
 
 Game: first-person Moon base sim, you + 3 NPC crew (Zaid, Mariam, Sam). Mars = second config, cut first.
 Stack: Vite + Three.js + TypeScript, static deploy, no server, no runtime external requests.
-Audience 10-14. One difficulty, forgiving; wrong choices cost, and the fail screen explains why.
+Audience 7-12. One difficulty, forgiving; wrong choices cost, and the fail screen explains why.
 
 ## Architecture
 - src/sim/     fixed-tick pure logic (resources, modules, chores, events, scoring). No three/DOM. Tested in node.

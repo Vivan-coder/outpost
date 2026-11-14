@@ -1,6 +1,6 @@
 # Outpost
 
-A first-person Moon base game for ages 10 to 14, built for NASA Space Apps 2026 (challenge: Junior Astronaut Mission Trainer). You keep a crew of four alive for five minutes of game time: fix what breaks, build modules, hand out chores, and get everyone into shelter when a solar storm arrives.
+A first-person Moon base game for ages 7 to 12, built for NASA Space Apps 2026 (challenge: Junior Astronaut Mission Trainer). You keep a crew of four alive for five game days: plan power each morning, fix what breaks, and get everyone into shelter when a real solar storm arrives. Every choice costs something. A short Mars preview (`?mars=1`) teaches why radio messages to Earth are slow.
 
 Runs in a phone or laptop browser. No server, no logins, no network calls while playing.
 
@@ -71,6 +71,15 @@ Downloaded 2026-11-14 from `https://ccmc.gsfc.nasa.gov/DONKI/WS/get/{FLR,SEP,CME
 **Data quality.** DONKI states that its real-time information "should be considered only as prototyping quality and in research context". NOAA Space Weather Prediction Center is the United States Government official source for space weather forecasts.
 
 Full credits, including tools and AI use, are in `docs/CREDITS.md`.
+
+## Which NASA data we used and why
+
+- **DONKI (space weather), two real events:** May 2024 (flares up to X5.8) and September 2017 (X9.3, X8.2, Kp 8). The storms in the game are built from these records, so the warning time, class and speed are real. Each run picks storms with a seed (`?seed=N`; `?classic` is the May 2024 pair). Why: the game's main risk is real, and kids see where it came from.
+- **RadLab (ISS dose rates, Moon and Mars instrument readings):** shown next to the player's storm dose so a kid can compare. Why: it puts the game numbers in a real-world scale.
+- **OSDR (astronaut health studies):** six study titles shown as research cards when a task matches. Why: each chore links to real science.
+- **NASA Mars facts:** gravity (0.38 of Earth), radio delay (about 4 to 24 minutes one way), dust storms and solar panels (Opportunity, 2018). Source URLs are in `src/data/facts.json`.
+- **Archived, not live:** all data is bundled. The forecast screen says "Archived NASA data". Nothing is shown as live.
+- **Game, not real:** power, oxygen, protection numbers, the radio delay in seconds, and all effects are labelled "Game". The Mars delay is shrunk to 20 seconds each way.
 
 ## VR / WebXR
 

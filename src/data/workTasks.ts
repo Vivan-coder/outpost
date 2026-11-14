@@ -1,7 +1,7 @@
 import type { TextKey } from '../i18n/en';
 
 // Hands-on task definitions. A task is a list of steps; the work engine in game/work.ts runs them.
-// These are simplified versions of real station work, made for ages 10-14.
+// These are simplified versions of real station work, made for ages 7-12.
 export type Tool = 'screwdriver' | 'wrench' | 'multimeter' | 'spare' | 'brush' | 'can' | 'seeds' | 'shears';
 export type StepKind =
   | 'pickTool' | 'unscrew' | 'removePart' | 'inspect' | 'insertPart' | 'connectCable' | 'fasten' | 'close' | 'flip'

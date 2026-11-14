@@ -10,6 +10,8 @@
 
 **Credit line for DONKI:** Space weather records from the NASA Community Coordinated Modeling Center (CCMC) DONKI database. DONKI states its real-time information should be considered only as prototyping quality and in research context. NOAA Space Weather Prediction Center is the United States Government official source for space weather forecasts.
 
+**Second event:** September 2017 (flares X9.3 2017-09-06 and X8.2 2017-09-10, CME 2650 km/s, GOES13 SEP, Kp 8). Downloaded 2026-11-14 the same way, no API key. Bundled in `src/data/solar-event-2017.json` with `.meta.json`.
+
 **Event used:** May 2024 solar storm, active region 13664. Downloaded 2026-11-14 with the query `startDate=2024-05-08&endDate=2024-05-12` from `https://ccmc.gsfc.nasa.gov/DONKI/WS/get/`. No API key used.
 
 DONKI event ids bundled in `src/data/solar-event.json`:
