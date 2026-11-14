@@ -1,0 +1,47 @@
+{
+  "day": "2023-03-01",
+  "unit": "uGy/h",
+  "unitNote": "absorbed dose rate in microgray per hour, as defined by the RadLab knowledge base",
+  "instruments": {
+    "Lidal": {
+      "spacecraft": "ISS",
+      "samples": 287,
+      "meanUGyPerH": 3.81,
+      "medianUGyPerH": 3.16,
+      "minUGyPerH": 1.9,
+      "maxUGyPerH": 48.04
+    },
+    "REM-Lid": {
+      "spacecraft": "ISS",
+      "samples": 287,
+      "meanUGyPerH": 8.31,
+      "medianUGyPerH": 4.1,
+      "minUGyPerH": 1.39,
+      "maxUGyPerH": 331.29
+    },
+    "DosTel1": {
+      "spacecraft": "ISS",
+      "samples": 875,
+      "meanUGyPerH": 21.27,
+      "medianUGyPerH": 4,
+      "minUGyPerH": 1.2,
+      "maxUGyPerH": 548.42
+    },
+    "CRaTER": {
+      "spacecraft": "LRO",
+      "samples": 24,
+      "meanUGyPerH": 8.07,
+      "medianUGyPerH": 8.07,
+      "minUGyPerH": 7.54,
+      "maxUGyPerH": 8.93
+    },
+    "MSL-RAD": {
+      "spacecraft": "Curiosity",
+      "samples": 83,
+      "meanUGyPerH": 5.69,
+      "medianUGyPerH": 5.61,
+      "minUGyPerH": 4.94,
+      "maxUGyPerH": 7.62
+    }
+  }
+}

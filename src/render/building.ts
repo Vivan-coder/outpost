@@ -140,6 +140,10 @@ export function createBuilding(kind: 'habitat' | 'shelter', r: number): Building
     const arch = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.09, 6, 14, Math.PI), std(0x6fd3a8));
     arch.position.set(S.medical.x, 0.55, S.medical.z); arch.rotation.y = Math.PI / 2; group.add(arch);
     label(group, 'lbl_medical', S.medical.x, 2.0, S.medical.z);
+    // Space weather console: a screen on a stand, left of the control desk
+    box(group, 1.2, 1.0, 0.6, std(0x23304a), S.weather.x, 0.5, S.weather.z);
+    const wscreen = box(group, 1.0, 0.7, 0.08, std(0x10202a, { emissive: 0xffa040, emissiveIntensity: 1.1 }), S.weather.x, 1.35, S.weather.z - 0.2); wscreen.rotation.x = -0.15;
+    label(group, 'lbl_weather', S.weather.x, 2.3, S.weather.z, '#ffb870');
     // Cupola-style window on the back wall
     const win = new THREE.Mesh(new THREE.CircleGeometry(0.85, 14), std(0x0a1430, { emissive: 0x1a2a66, emissiveIntensity: 0.9 }));
     win.position.set(S.window.x, 1.7, S.window.z - 1.4); group.add(win);

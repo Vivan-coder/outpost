@@ -1,0 +1,24 @@
+{
+  "source": "NASA OSDR RadLab (Radiation Data Lab) Data API",
+  "sourcePage": "https://visualization.osdr.nasa.gov/radlab/gui/data-api",
+  "apiBase": "https://visualization.osdr.nasa.gov/radlab/api/",
+  "query": "columns=instrument,spacecraft,timestamp,absorbed_dose_rate&query=absorbed_dose_rate>0 AND timestamp>2023-03-01 AND timestamp<2023-03-02&format=tsv",
+  "downloadDate": "2026-11-14",
+  "apiKeyUsed": false,
+  "processing": "Raw readings for one day were averaged per instrument in a one-off script: mean, median, min and max of absorbed_dose_rate. Only these summaries are bundled.",
+  "instruments": {
+    "ISS": [
+      "Lidal",
+      "REM-Lid",
+      "DosTel1"
+    ],
+    "Moon": [
+      "CRaTER (on the Lunar Reconnaissance Orbiter)"
+    ],
+    "Mars": [
+      "MSL-RAD (on the Curiosity rover, on the surface)"
+    ]
+  },
+  "unitCheck": "The unit (microgray per hour) comes from the RadLab knowledge-base page for absorbed_dose_rate as quoted by a search result. That page and the data-api docs page returned HTTP 500 when fetched directly on 2026-11-14, so the unit was not read first-hand.",
+  "caveat": "Instrument readings are samples taken at uneven times (more often near the South Atlantic Anomaly), so daily averages are rough."
+}

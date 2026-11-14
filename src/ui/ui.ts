@@ -7,6 +7,8 @@ import { t, type TextKey } from '../i18n/en';
 import { GAUGE_ZONE, type TaskRunner } from '../game/tasks';
 import { TOOLS, type Tool } from '../data/workTasks';
 import type { WorkView } from '../game/work';
+import { CARD_IDS, cardInfo, issDayHigh, issDayLow, radDay, radUrl, type CardId } from './cards';
+import { drawStormChart, realNow } from './storm';
 
 export interface UiHandlers {
   pickBuild(type: ModuleType): void;
@@ -18,6 +20,11 @@ export interface UiHandlers {
   upgrade(key: UpgradeKey): void;
   tool(i: number): void;
   leaveWork(): void;
+  quality(): 'low' | 'medium' | 'high';
+  cycleQuality(): void;
+  fps(): boolean;
+  toggleFps(): void;
+  cardNew(id: CardId): void;
   callShelter(): void;
   toggleLanguage(): void;
   restart(): void;
@@ -86,6 +93,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   $('pauseBtn').textContent = t('btnPause');
   $('shelterBtn').textContent = t('btnShelter');
   $('sourceCard').replaceChildren(el('b', '', t('sourceCardTitle')), el('span', '', t('sourceCardText')));
+  $('spTitle').textContent = t('stormPanelTitle');
+  $('spNote').textContent = t('stormSimple');
 
   const menu = $('menu'), menuCard = $('menuCard'), overlay = $('overlay'), overlayCard = $('overlayCard');
   const banner = $('banner'), shelterBtn = $('shelterBtn'), storm = $('storm');
@@ -94,6 +103,13 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   let menuKind: 'build' | 'crew' | 'pause' | 'upgrade' | 'quiz' | null = null;
   let subTimer = 0;
   let goalsOpen = false, lastSim: SimState | null = null, workSig = '';
+  const collected = new Set<CardId>();
+  const badge = (kind: 'real' | 'game' | 'hist', info?: { source: string; date: string; url: string }): HTMLElement => {
+    const b = el('button', `badge ${kind}`, t(kind === 'real' ? 'badgeReal' : kind === 'game' ? 'badgeGame' : 'badgeHist') + (info ? ' ⓘ' : ''));
+    if (info) b.addEventListener('click', (e) => { e.stopPropagation(); ui.dataInfo(info); });
+    return b;
+  };
+  const DONKI = { source: 'NASA CCMC DONKI', date: '2024-05-10 to 2024-05-12', url: 'https://ccmc.gsfc.nasa.gov/tools/DONKI/' };
   const marks = new Map<string, HTMLElement>();
   let actHeld = false;
 
@@ -272,6 +288,20 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       shelterBtn.style.display = showShelter ? 'block' : 'none';
       if (showShelter) shelterBtn.style.top = `${banner.offsetHeight + 18}px`;
       $('sourceCard').style.display = sim.storm ? 'block' : 'none';
+      const sp = $('stormPanel');
+      sp.style.display = sim.storm ? 'block' : 'none';
+      document.body.classList.toggle('storming', !!sim.storm);
+      if (sim.storm) {
+        if (!sp.dataset.ready) { sp.dataset.ready = '1'; $('spBadge').replaceChildren(badge('real', DONKI), badge('game')); }
+        drawStormChart($('spChart') as HTMLCanvasElement, realNow(sim, cfg));
+      }
+      // Dosimeter: the number is the game's storm dose; the comparison is real ISS data from RadLab
+      const dose = $('dose');
+      if (!dose.dataset.ready) {
+        dose.dataset.ready = '1';
+        dose.replaceChildren(el('div', 'doseRow'), el('small', '', t('doseReal', { lo: issDayLow, hi: issDayHigh })), badge('real', { source: 'NASA OSDR RadLab', date: radDay, url: radUrl }), badge('game'));
+      }
+      (dose.firstElementChild as HTMLElement).textContent = `☢ ${t('doseLabel')}: ${t('doseGame', { n: Math.round(sim.radiation * 10) })}`;
       const active = sim.storm?.phase === 'active';
       storm.className = active ? (sim.playerExposure <= 0 ? 'on' : 'on exposed') : sim.storm ? 'warn' : '';
     },
@@ -370,6 +400,92 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       menuCard.append(closer(), el('p', 'keys', t('menuKeys')));
       menu.classList.add('on');
       focusFirst(menuCard);
+    },
+
+    collect(id: CardId): boolean {
+      if (collected.has(id)) return false;
+      collected.add(id);
+      h.cardNew(id);
+      return true;
+    },
+    setCollected(ids: string[]): void { ids.forEach((i) => { if (CARD_IDS.includes(i as CardId)) collected.add(i as CardId); }); },
+    collectedIds: (): CardId[] => [...collected],
+    cardTitle: (id: CardId): string => cardInfo(id).title,
+
+    dataInfo(info: { source: string; date: string; url: string }): void {
+      ui.card({ title: t('badgeTitle'), paragraphs: [t('srcName', { s: info.source }), t('srcDate', { d: info.date })], source: t('srcLink', { u: info.url }), button: t('btnClose') });
+    },
+
+    // The Space Weather console: the real DONKI sequence for the whole event, with where the game storm is now.
+    weatherCard(sim: SimState): void {
+      overlayCard.replaceChildren(el('h2', '', t('weatherTitle')), badge('real', DONKI), el('p', '', t('weatherIntro')));
+      const c = document.createElement('canvas');
+      c.width = 760; c.height = 340;
+      drawStormChart(c, realNow(sim, cfg));
+      overlayCard.appendChild(c);
+      const ul = el('ul');
+      const rows: [string, string][] = [
+        ...solarEvent.flares.map((f): [string, string] => [f.beginTime, t('dataFlare', { time: utc(f.beginTime), cls: f.classType }) + '  · ' + f.id]),
+        ...solarEvent.cmes.map((m): [string, string] => [m.startTime, t('dataCme', { time: utc(m.startTime), speed: m.speedKmS ?? '?' }) + '  · ' + m.id]),
+        ...solarEvent.seps.filter((s) => s.instrument.startsWith('GOES')).map((s): [string, string] => [s.eventTime, t('dataSep', { time: utc(s.eventTime), instrument: s.instrument }) + '  · ' + s.id]),
+        ...solarEvent.gsts.slice(0, 1).map((g): [string, string] => [g.startTime, t('dataGst', { time: utc(g.startTime), kp: g.maxKp }) + '  · ' + g.id]),
+      ];
+      for (const [, text] of rows.sort((a, b) => a[0].localeCompare(b[0]))) ul.appendChild(el('li', '', text));
+      overlayCard.appendChild(ul);
+      overlayCard.appendChild(el('p', '', t('stormScaleTitle')));
+      const sim2 = el('p', '');
+      sim2.append(badge('game'), document.createTextNode(' ' + t('stormSimple')));
+      overlayCard.appendChild(sim2);
+      overlayCard.appendChild(el('p', 'src', t('dataQuality')));
+      const b = el('button', 'main', t('btnClose'));
+      b.addEventListener('click', closeOverlay);
+      overlayCard.appendChild(b);
+      overlayCard.scrollTop = 0;
+      overlay.classList.add('on');
+      b.focus({ preventScroll: true });
+    },
+
+    // One place that lists every real dataset, how the game uses it and where it comes from.
+    dataLab(): void {
+      overlayCard.replaceChildren(el('h2', '', t('labTitle')), el('p', '', t('labIntro')));
+      const rows: { key: TextKey; kind: 'real' | 'hist'; info: { source: string; date: string; url: string } }[] = [
+        { key: 'lab_donki', kind: 'real', info: DONKI },
+        { key: 'lab_radlab', kind: 'real', info: { source: 'NASA OSDR RadLab', date: radDay, url: radUrl } },
+        { key: 'lab_osdr', kind: 'real', info: { source: 'NASA OSDR', date: '2026-11-14', url: 'https://osdr.nasa.gov/bio/repo/' } },
+        { key: 'lab_alsj', kind: 'hist', info: { source: 'Apollo Lunar Surface Journal', date: '1972', url: 'https://www.nasa.gov/wp-content/uploads/static/history/alsj/WOTM/WOTM-Radiation.html' } },
+      ];
+      for (const r of rows) { const p = el('p', ''); p.append(badge(r.kind, r.info), document.createTextNode(' ' + t(r.key))); overlayCard.appendChild(p); }
+      overlayCard.appendChild(el('p', 'src', t('lab_notused')));
+      overlayCard.appendChild(el('p', '', t('logCount', { n: collected.size, m: CARD_IDS.length })));
+      const log = el('button', 'close', t('btnLog'));
+      log.addEventListener('click', () => ui.missionLog());
+      const b = el('button', 'main', t('btnClose'));
+      b.addEventListener('click', closeOverlay);
+      overlayCard.append(log, b);
+      overlayCard.scrollTop = 0;
+      overlay.classList.add('on');
+      b.focus({ preventScroll: true });
+    },
+
+    // Mission Log: the data cards found so far, each with its source.
+    missionLog(): void {
+      overlayCard.replaceChildren(el('h2', '', t('logTitle')), el('p', '', t('logCount', { n: collected.size, m: CARD_IDS.length })));
+      for (const id of CARD_IDS) {
+        const row = el('div', 'logRow');
+        if (collected.has(id)) {
+          const c = cardInfo(id);
+          const head = el('b', '', c.title + ' ');
+          head.appendChild(badge(c.kind, { source: c.source, date: c.date, url: c.url }));
+          row.append(head, el('div', '', c.line));
+        } else row.append(el('b', '', '???'), el('div', '', t('logLocked')));
+        overlayCard.appendChild(row);
+      }
+      const b = el('button', 'main', t('btnClose'));
+      b.addEventListener('click', closeOverlay);
+      overlayCard.appendChild(b);
+      overlayCard.scrollTop = 0;
+      overlay.classList.add('on');
+      b.focus({ preventScroll: true });
     },
 
     popup(text: string): void {
@@ -472,9 +588,12 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       const resume = el('button', 'main', t('btnResume'));
       resume.addEventListener('click', closeMenu);
       menuCard.appendChild(resume);
-      menuCard.appendChild(option(1, t('btnData'), t('sourceCardTitle'), '', () => { closeMenu(); ui.dataCard(); }));
-      menuCard.appendChild(option(2, t('btnLang'), '', '', () => h.toggleLanguage()));
-      menuCard.appendChild(option(3, t('btnRestart'), '', '', () => h.restart()));
+      menuCard.appendChild(option(1, t('btnLab'), t('badgeReal'), '', () => { closeMenu(); ui.dataLab(); }));
+      menuCard.appendChild(option(2, t('btnLog'), t('logCount', { n: collected.size, m: CARD_IDS.length }), '', () => { closeMenu(); ui.missionLog(); }));
+      menuCard.appendChild(option(3, t('qualityLabel', { q: t(`q_${h.quality()}` as TextKey) }), '', '', () => { h.cycleQuality(); ui.openPause(); }));
+      menuCard.appendChild(option(4, t('fpsLabel', { s: t(h.fps() ? 'on' : 'off') }), '', '', () => { h.toggleFps(); ui.openPause(); }));
+      menuCard.appendChild(option(5, t('btnLang'), '', '', () => h.toggleLanguage()));
+      menuCard.appendChild(option(6, t('btnRestart'), '', '', () => h.restart()));
       menuCard.appendChild(el('p', 'keys', `${t('hintDesktop')} · ${t('menuKeys')}`));
       menu.classList.add('on');
       resume.focus({ preventScroll: true });
@@ -555,6 +674,12 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       }
       overlayCard.appendChild(el('p', '', `${t('reportTitle')}: ${t('reportStats', { t: mmss(sim.time), fixes: sim.stats.fixes + sim.stats.jobs + sim.stats.crewTasks, builds: sim.stats.builds })}`));
       overlayCard.appendChild(drawChart(sim, cfg));
+      overlayCard.appendChild(el('h2', '', t('endRealTitle')));
+      const rg = el('p', '');
+      rg.append(badge('real'), document.createTextNode(' ' + t('endReal')));
+      const gm = el('p', '');
+      gm.append(badge('game'), document.createTextNode(' ' + t('endGame')));
+      overlayCard.append(rg, gm, el('p', '', t('logCount', { n: collected.size, m: CARD_IDS.length })));
       overlayCard.appendChild(el('p', 'src', t('creditsLine')));
       const b = el('button', 'main', t('btnAgain'));
       b.addEventListener('click', onAgain);

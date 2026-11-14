@@ -13,6 +13,7 @@ import { harvestPlant, HARVEST_FOOD, assign, build, canPlace, completeJob, creat
 import { STATION, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi, factText } from './ui/ui';
+import { cardInfo, researchFor, type CardId } from './ui/cards';
 import { warnLines, stormLines, type Line } from './data/talk';
 import { makeQuiz } from './data/quiz';
 import { stars as starsOf } from './sim/sim.ts';
@@ -82,6 +83,7 @@ type Target =
   | { type: 'task'; task: TaskTarget; name: string }
   | { type: 'door'; view: BuildingView }
   | { type: 'console' }
+  | { type: 'weather' }
   | { type: 'crew'; index: number };
 
 let placing: ModuleType | null = null;
@@ -91,15 +93,46 @@ let clock = 0; // seconds of unpaused play, for banners and animation
 let skyMix = 0, sirenAt = 0, holdTick = 0, lastBot = '';
 
 // Saved progress: past goals give a few bonus research points at the start of the next mission.
-interface Save { plays: number; bestStars: number; goals: string[] }
+interface Save { plays: number; bestStars: number; goals: string[]; cards: string[] }
 function loadSave(): Save {
-  try { const v = JSON.parse(localStorage.getItem(SAVE_KEY) ?? 'null'); if (v && Array.isArray(v.goals)) return v as Save; } catch { /* storage blocked or corrupt */ }
-  return { plays: 0, bestStars: 0, goals: [] };
+  try { const v = JSON.parse(localStorage.getItem(SAVE_KEY) ?? 'null'); if (v && Array.isArray(v.goals)) return { cards: [], ...v } as Save; } catch { /* storage blocked or corrupt */ }
+  return { plays: 0, bestStars: 0, goals: [], cards: [] };
+}
+function persistCards(): void {
+  const old = loadSave();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...old, cards: Array.from(new Set([...old.cards, ...ui.collectedIds()])) })); } catch { /* storage blocked */ }
 }
 function saveProgress(sim: SimState): void {
   const old = loadSave();
-  const next: Save = { plays: old.plays + 1, bestStars: Math.max(old.bestStars, starsOf(sim)), goals: Array.from(new Set([...old.goals, ...sim.goalsDone])) };
+  const next: Save = { plays: old.plays + 1, bestStars: Math.max(old.bestStars, starsOf(sim)), goals: Array.from(new Set([...old.goals, ...sim.goalsDone])), cards: Array.from(new Set([...old.cards, ...ui.collectedIds()])) };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(next)); } catch { /* storage blocked */ }
+}
+
+// ---- Quality: Low, Medium, High. Low has no shadows and a lower pixel ratio. It drops by itself if the frame rate stays low. ----
+type Quality = 'low' | 'medium' | 'high';
+let quality: Quality = matchMedia('(pointer: coarse)').matches ? 'medium' : 'high';
+try { const v = localStorage.getItem('outpost.quality'); if (v === 'low' || v === 'medium' || v === 'high') quality = v; } catch { /* storage blocked */ }
+const PIXEL_CAP: Record<Quality, number> = { low: 1, medium: 1.5, high: 2 };
+const SHADOW_SIZE: Record<Quality, number> = { low: 512, medium: 1024, high: 2048 };
+function applyQuality(): void {
+  sun.castShadow = quality !== 'low';
+  sun.shadow.map?.dispose(); sun.shadow.map = null;
+  sun.shadow.mapSize.set(SHADOW_SIZE[quality], SHADOW_SIZE[quality]);
+  resize();
+  try { localStorage.setItem('outpost.quality', quality); } catch { /* storage blocked */ }
+}
+let lowRun = 0;
+
+// Data cards: the first time the player meets a real dataset it is added to the Mission Log (+2 research).
+const cmeSaid = new Set<number>();
+const researchSeen = new Set<string>();
+function collectResearch(task: string): void {
+  const id = researchFor(task);
+  if (!id || researchSeen.has(id)) return;
+  researchSeen.add(id);
+  const c = cardInfo(id);
+  ui.collect(id);
+  ui.toast(`${t('badgeReal')}: ${c.line}`, 'bot');
 }
 
 const modName = (type: ModuleType) => t(`mod_${type}` as TextKey);
@@ -140,6 +173,11 @@ const ui = createUi(level, {
   },
   callShelter() { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
   toggleLanguage: switchLanguage,
+  quality: () => quality,
+  cycleQuality: () => { quality = quality === 'high' ? 'medium' : quality === 'medium' ? 'low' : 'high'; applyQuality(); },
+  fps: () => document.body.classList.contains('showfps'),
+  toggleFps: () => { document.body.classList.toggle('showfps'); },
+  cardNew: (id: CardId) => { sim.research += 2; sfx.part(); ui.toast(t('newCard', { title: cardInfo(id).title, n: 2 }), 'good'); persistCards(); },
   restart: () => location.reload(),
   tool: (i) => { work?.selectIndex(i); },
   leaveWork: () => leaveWork(),
@@ -231,7 +269,7 @@ const byId = (id: string) => document.getElementById(id)!;
 byId('buildBtn').addEventListener('click', () => openBuild());
 byId('crewBtn').addEventListener('click', () => openCrew());
 byId('pauseBtn').addEventListener('click', () => openPause());
-byId('dataBtn').addEventListener('click', () => { unlockPointer(); sfx.click(); ui.dataCard(); });
+byId('dataBtn').addEventListener('click', () => { unlockPointer(); sfx.click(); ui.dataLab(); });
 // A clicked HUD button must not keep keyboard focus, or Space and Enter would press it again.
 document.addEventListener('click', () => { if (!ui.blocking()) (document.activeElement as HTMLElement | null)?.blur?.(); });
 
@@ -268,6 +306,7 @@ function pickTarget(): Target | null {
   }
   const hab = world.buildings.find((v) => v.type === 'habitat');
   if (hab) consider(hab.x + STATION.engineering.x, hab.z + STATION.engineering.z + 1.2, 2.4, 1.4, 0.2, () => ({ type: 'console' }));
+  if (hab) consider(hab.x + STATION.weather.x, hab.z + STATION.weather.z + 1.2, 2.4, 1.4, 0.25, () => ({ type: 'weather' }));
   const door = world.doorNear(px, pz);
   if (door) consider(door.x, door.z + door.r, 2.6, 1.6, 0.5, () => ({ type: 'door', view: door }));
   const safeTalk = !sim.storm || (sim.storm.phase === 'active' && sim.playerExposure === 0);
@@ -286,6 +325,8 @@ function actTap(): void {
     if (sim.storm) askQuiz(); else openCrew(target.index);
   } else if (target.type === 'console') {
     unlockPointer(); sfx.click(); ui.openUpgrades(sim);
+  } else if (target.type === 'weather') {
+    unlockPointer(); sfx.click(); ui.weatherCard(sim);
   }
 }
 
@@ -295,6 +336,7 @@ function finishTask(tg: TaskTarget, result: TaskResult): void {
     if (tg.kind === 'repair') { if (m) fix(sim, m.id); } else if (tg.jobId !== null) completeJob(sim, level, tg.jobId);
     world.pulse(tg.moduleId);
     sfx.fix();
+    collectResearch(tg.kind);
     if (tg.kind !== 'repair') { const def = level.tasks.find((tk) => tk.id === tg.kind); if (def) ui.popup(ui.gainText(def.reward)); } else ui.popup('✔');
     ui.toast(tg.kind === 'repair' ? t('taskDone_repair', { name: m ? modName(m.type) : '' }) : t('taskDone', { task: t(`task_${tg.kind}` as TextKey) }), 'good');
   } else {
@@ -366,7 +408,7 @@ byId('introUi').addEventListener('pointerdown', () => { if (intro && intro.t > 1
 
 function resize(): void {
   const w = innerWidth, h = innerHeight;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL_CAP[quality]));
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -430,14 +472,32 @@ function endIntro(): void {
   showTutorial();
 }
 
-const skipIntroNow = params.has('skip') || params.has('nointro') || params.has('judge');
+const judge = params.has('judge');
+if (judge) {
+  document.body.classList.add('judge');
+  // A ready, upgraded base about 20 s before the first storm warning, with a job already waiting
+  sim.time = 236; sim.sampleAt = 236; sim.nextJobAt = 236; sim.eventIndex = level.events.filter((e) => e.at < 236).length;
+  sim.power = 75; sim.air = 85; sim.food = 70; sim.health = 88; sim.parts = 6; sim.research = 6; sim.dust = 0.6;
+  for (const k of ['solar', 'lifeSupport', 'greenhouse', 'engineering', 'station'] as const) sim.levels[k] = 2;
+  sim.plants[0] = { stage: 4, growth: 100, water: 0.6, kind: 'lettuce' };
+  sim.plants[1] = { stage: 2, growth: 30, water: 0.5, kind: 'tomato' };
+  const solarMod = sim.modules.find((m) => m.type === 'solar');
+  if (solarMod) sim.jobs.push({ id: sim.nextId++, task: 'solar', moduleId: solarMod.id });
+  player.pos.set(0, 0, 1.5);
+  byId('judgeReset').textContent = t('btnJudgeReset');
+  byId('judgeReset').addEventListener('click', () => location.reload());
+} else ui.setCollected(saved.cards);
+function showJudge(): void {
+  ui.card({ title: t('judgeTitle'), paragraphs: [t('judgeBody')], button: t('btnStart'), onClose: unlockAudio });
+}
+const skipIntroNow = params.has('skip') || params.has('nointro') || judge;
 if (skipIntroNow) {
   const l = createLander();
   l.group.position.set(LANDER_AT.x, 0, LANDER_AT.z); l.group.remove(l.flame, l.light); l.hatch.rotation.z = -1.7; l.ladder.visible = true;
   scene.add(l.group);
   world.extraBlockers.push({ x: LANDER_AT.x, z: LANDER_AT.z, r: 2.4 });
   world.sync(sim);
-  showTutorial();
+  if (judge) showJudge(); else showTutorial();
 } else {
   ui.card({
     title: t('introTitle'),
@@ -446,6 +506,7 @@ if (skipIntroNow) {
     onClose: () => startIntro(),
     extra: [
       { label: t('btnSkipIntro'), onClick: () => { byId('overlay').classList.remove('on'); unlockAudio(); const l = createLander(); l.group.position.set(LANDER_AT.x, 0, LANDER_AT.z); l.group.remove(l.flame, l.light); l.hatch.rotation.z = -1.7; l.ladder.visible = true; scene.add(l.group); world.extraBlockers.push({ x: LANDER_AT.x, z: LANDER_AT.z, r: 2.4 }); world.sync(sim); player.pos.set(0, 0, 1.5); showTutorial(); } },
+      { label: t('btnJudge'), onClick: () => { location.href = location.pathname + '?judge=1'; } },
       { label: t('btnLang'), onClick: switchLanguage },
     ],
   });
@@ -466,14 +527,21 @@ function handleEvents(): void {
         if (job) { sfx.part(); ui.toast(t('jobNew', { job: t(`task_${job.task}` as TextKey) })); }
         break;
       }
-      case 'choreDone': sfx.part(); ui.toast(t('choreDone', { name: sim.crew[e.crew].name, chore: t(`task_${e.task}` as TextKey) }), 'good'); break;
+      case 'choreDone': collectResearch(e.task); sfx.part(); ui.toast(t('choreDone', { name: sim.crew[e.crew].name, chore: t(`task_${e.task}` as TextKey) }), 'good'); break;
       case 'upgrade': break; // the console handles its own feedback
       case 'autoRepair': { const m = sim.modules.find((mod) => mod.id === e.id); sfx.fix(); if (m) ui.toast(t('autoRepaired', { name: modName(m.type) }), 'good'); break; }
       case 'goal': sfx.win(); ui.toast(t('goalDone', { goal: t(`goal_${e.id}` as TextKey, { n: goalN(e.id) }) }), 'good'); break;
-      case 'stormWarn': sfx.alarm(); sirenAt = clock + 12; bot('botStorm'); queueTalk(warnLines(level.storms[e.index]), 4, 5); break;
+      case 'stormWarn': {
+        sfx.alarm(); sirenAt = clock + 12; bot('botStorm'); queueTalk(warnLines(level.storms[e.index]), 4, 5);
+        ui.collect('donkiFlare');
+        ui.toast(t('forecast1', { cls: level.storms[e.index].info.flareClass }), 'bot');
+        break;
+      }
       case 'stormStart': {
         sfx.alarm();
         bot('botImpact');
+        ui.toast(t('forecast3'), 'bot');
+        ui.collect('donkiSep'); ui.collect('apollo1972'); ui.collect('radMoon');
         if (work && sim.playerExposure > 0) { leaveWork(); ui.toast(t('taskStorm'), 'bad'); }
         queueTalk(stormLines(level.storms[e.index], Math.max(...solarEvent.gsts.map((g) => g.maxKp)), factText), 6, 6.5);
         if (sim.playerExposure > 0) {
@@ -484,6 +552,7 @@ function handleEvents(): void {
         break;
       }
       case 'stormEnd': {
+        ui.collect('donkiKp'); ui.collect('radMars');
         talkQueue = [];
         say({ who: 2, key: 'talk_clear', vars: {} });
         sfx.allClear();
@@ -533,9 +602,9 @@ function updatePrompt(): void {
   if (target.type === 'task') {
     const action = t(target.task.kind === 'repair' ? 'do_repair' : (`do_${target.task.kind}` as TextKey), { name: target.name });
     ui.setPrompt(touch ? t('promptHoldTouch', { action }) : t('promptHold', { key: 'E', action }), t(target.task.kind === 'repair' ? 'btnAct_repair' : 'btnAct_task'));
-  } else if (target.type === 'console') {
-    const action = t('do_console');
-    ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t('btnAct_console'));
+  } else if (target.type === 'console' || target.type === 'weather') {
+    const action = t(target.type === 'console' ? 'do_console' : 'do_weather');
+    ui.setPrompt(touch ? t('promptTapTouch', { action }) : t('promptTap', { key: 'E', action }), t(target.type === 'console' ? 'btnAct_console' : 'btnAct_weather'));
   } else {
     const action = target.type === 'door'
       ? t(target.view.blocker.ring!.open ? 'do_closeDoor' : 'do_openDoor')
@@ -640,6 +709,8 @@ player.update(0, input.state); // place the camera before the first (paused) fra
 
 // FPS meter: average + worst frame over each half second, for the phone gate.
 let last = performance.now(), acc = 0, frames = 0, worst = 0;
+applyQuality();
+if (params.has('fps')) document.body.classList.add('showfps');
 renderer.setAnimationLoop((now) => {
   const rawDt = (now - last) / 1000;
   last = now;
@@ -668,6 +739,12 @@ renderer.setAnimationLoop((now) => {
     if (ticked) { handleEvents(); ui.update(sim, clock, crew.safeCount(sim)); ui.setJobs(jobList()); }
 
     world.update(dt, sim, clock, px, pz, crew.positions());
+    if (sim.storm?.phase === 'warning' && !cmeSaid.has(sim.storm.index) && sim.time >= level.storms[sim.storm.index].info.cmeAt) {
+      cmeSaid.add(sim.storm.index);
+      const inf = level.storms[sim.storm.index].info;
+      ui.toast(t('forecast2', { speed: inf.cmeSpeedKmS ?? '?' }), 'bot'); ui.collect('donkiCme');
+    }
+    if (clock > 25) ui.collect('radIss');
     if (talkQueue.length > 0 && clock >= nextTalkAt) { say(talkQueue.shift()!); nextTalkAt = clock + talkGap; }
     crew.tickSpeech(clock);
 
@@ -724,6 +801,13 @@ renderer.setAnimationLoop((now) => {
   if (acc >= 0.5) {
     const info = renderer.info.render;
     fpsEl.textContent = `${Math.round(frames / acc)} fps  worst ${(worst * 1000).toFixed(0)} ms\n${info.calls} calls  ${(info.triangles / 1000).toFixed(0)}k tris  dpr ${renderer.getPixelRatio().toFixed(1)}`;
+    if (!params.has('debug') && !paused && rawDt < 0.25 && !document.hidden) {
+      lowRun = frames / acc < 28 ? lowRun + 1 : 0;
+      if (lowRun >= 6 && quality !== 'low') {
+        quality = quality === 'high' ? 'medium' : 'low'; lowRun = 0; applyQuality();
+        ui.toast(t('qualityAuto', { q: t(`q_${quality}` as TextKey) }));
+      }
+    }
     acc = 0; frames = 0; worst = 0;
   }
 });

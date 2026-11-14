@@ -1,0 +1,52 @@
+{
+  "studies": [
+    {
+      "id": "OSD-471",
+      "title": "Spaceflight-Induced Bone Loss Alters Failure Mode and Reduces Bending Strength in Murine Spinal Segments from Bion-M1",
+      "topic": "bone",
+      "organism": "Mus musculus",
+      "projectType": "Spaceflight Study",
+      "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-471"
+    },
+    {
+      "id": "OSD-310",
+      "title": "Spaceflight-induced (STS-62) vertebral bone loss in ovariectomized rats is associated with increased bone marrow adiposity and no change in bone formation",
+      "topic": "bone",
+      "organism": "Rattus norvegicus",
+      "projectType": "Spaceflight Study",
+      "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-310"
+    },
+    {
+      "id": "OSD-342",
+      "title": "Targeting myostatin/activin A protects against skeletal muscle and bone loss during spaceflight [plasma proteomics]",
+      "topic": "muscle",
+      "organism": "Mus musculus",
+      "projectType": "Spaceflight Study",
+      "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-342"
+    },
+    {
+      "id": "OSD-111",
+      "title": "Global gene expression analysis highlights microgravity sensitive key genes in soleus and EDL of 30 days space flown mice",
+      "topic": "muscle",
+      "organism": "Mus musculus",
+      "projectType": "Spaceflight Study",
+      "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-111"
+    },
+    {
+      "id": "OSD-7",
+      "title": "The Arabidopsis spaceflight transcriptome: a comparison of whole plants to discrete root, hypocotyl and shoot responses to the orbital environment",
+      "topic": "plants",
+      "organism": "Arabidopsis thaliana",
+      "projectType": "Spaceflight Study",
+      "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-7"
+    },
+    {
+      "id": "OSD-772",
+      "title": "PH-04 Chile Peppers in Space",
+      "topic": "plants",
+      "organism": "Microbiota",
+      "projectType": "Spaceflight Study",
+      "url": "https://osdr.nasa.gov/bio/repo/data/studies/OSD-772"
+    }
+  ]
+}

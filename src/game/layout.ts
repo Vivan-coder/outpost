@@ -10,6 +10,7 @@ export const STATION = {
   exercise: { x: 2.6, z: 0.0 },
   medical: { x: 0.0, z: -1.5 },
   window: { x: 0.0, z: -3.4 },
+  weather: { x: -3.7, z: -3.0 },
 };
 export const SHELTER = { radmon: { x: 0, z: -3.0 } };
 

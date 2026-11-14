@@ -3,25 +3,30 @@
   "facts": {
     "water90": {
       "text": "The space station reclaims about 90% of the water its crew uses, including urine, sweat and breath moisture.",
-      "value": 90, "unit": "percent",
+      "value": 90,
+      "unit": "percent",
       "source_url": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/recycling-water-and-air/",
       "verified_on": "2026-11-14"
     },
     "bone1": {
       "text": "Without precautions, an astronaut's weight-bearing bones become roughly 1% less dense for every month in space.",
-      "value": 1, "unit": "percent per month",
+      "value": 1,
+      "unit": "percent per month",
       "source_url": "https://www.nasa.gov/missions/station/iss-research/counteracting-bone-and-muscle-loss-in-microgravity/",
       "verified_on": "2026-11-14"
     },
     "exercise2h": {
       "text": "Space station crews exercise for an average of two hours a day to protect their bones and muscles.",
-      "value": 2, "unit": "hours per day",
+      "value": 2,
+      "unit": "hours per day",
       "source_url": "https://www.nasa.gov/missions/station/iss-research/counteracting-bone-and-muscle-loss-in-microgravity/",
       "verified_on": "2026-11-14"
     },
     "moxie6": {
       "text": "MOXIE on the Perseverance rover made oxygen from Mars air. Its design goal was 6 grams per hour, and it reached nearly 10.56 grams per hour at peak.",
-      "value": 6, "unit": "grams per hour (design goal)", "peak": 10.56,
+      "value": 6,
+      "unit": "grams per hour (design goal)",
+      "peak": 10.56,
       "source_url": "https://science.nasa.gov/blog/moxie-sets-consecutive-personal-bests-and-mars-records-for-oxygen-production/",
       "verified_on": "2026-11-14"
     },
@@ -37,21 +42,33 @@
     },
     "commsDelay": {
       "text": "A message between Earth and Mars takes about 4 minutes one way when the planets are closest and about 24 minutes when they are farthest apart.",
-      "value": [4, 24], "unit": "minutes one way",
+      "value": [
+        4,
+        24
+      ],
+      "unit": "minutes one way",
       "source_url": "https://www.nasa.gov/centers-and-facilities/goddard/space-communications-7-things-you-need-to-know/",
       "verified_on": "2026-11-14"
     },
     "gravityMars": {
       "text": "Gravity on the surface of Mars is 3.73 m/s2, which is 0.38 times Earth's.",
-      "value": 0.38, "unit": "x Earth gravity",
+      "value": 0.38,
+      "unit": "x Earth gravity",
       "source_url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html",
       "verified_on": "2026-11-14"
     },
     "gravityMoon": {
       "text": "Gravity on the surface of the Moon is 1.62 m/s2, which is 0.165 times Earth's.",
-      "value": 0.165, "unit": "x Earth gravity",
+      "value": 0.165,
+      "unit": "x Earth gravity",
       "source_url": "https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html",
       "verified_on": "2026-11-14"
+    },
+    "flareScale": {
+      "text": "Each step up the flare class scale (C, M, X) is ten times stronger: an X flare is 10 times an M and 100 times a C.",
+      "source_url": "https://svs.gsfc.nasa.gov/10109",
+      "verified_on": "2026-11-14",
+      "verified_how": "Read in a search-result excerpt of the NASA SVS page and the GOES X-ray description page. The pages themselves could not be fetched from this network, so this one is only partly verified."
     }
   }
 }

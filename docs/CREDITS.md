@@ -24,6 +24,18 @@ DONKI event ids bundled in `src/data/solar-event.json`:
 
 No NASA images or videos are used.
 
+### Added: RadLab, OSDR and the flare scale (downloaded 2026-11-14, bundled, no runtime calls)
+
+| Used for | Dataset / page | URL |
+|---|---|---|
+| ISS, Moon-orbit (LRO CRaTER) and Mars-surface (Curiosity MSL-RAD) dose rates, 1 March 2023 averages | NASA OSDR RadLab Data API (`src/data/radlab.json`, `radlab.meta.json`) | https://visualization.osdr.nasa.gov/radlab/gui/data-api |
+| Six real spaceflight studies (bone, muscle, plants): titles, accession numbers and links only | NASA Open Science Data Repository search API (`src/data/osdr.json`, `osdr.meta.json`) | https://osdr.nasa.gov/bio/repo/ |
+| Flare class scale (each letter ten times stronger) | NASA SVS / GOES X-ray description, partly verified from search excerpts (`facts.json`: flareScale) | https://svs.gsfc.nasa.gov/10109 |
+
+**Caveats.** The RadLab unit (microgray per hour) comes from the RadLab knowledge base as quoted in a search result: the RadLab docs and knowledge-base pages returned HTTP 500 when fetched directly. The OSDR studies are mostly animal and plant studies and the game claims no result from them. The dosimeter number in the HUD is a game value and is labelled "Game"; only the ISS comparison is real data.
+
+**Checked but not used:** NASA APOD (the API returned placeholder titles and logo images) and Mars Trek (an interactive map with no downloadable site map verified).
+
 ## Third-party assets
 
 None. All 3D models are built from primitives in code, and all sounds are synthesised at runtime with WebAudio. There are no image, model or audio files in the game.

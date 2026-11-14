@@ -1,0 +1,14 @@
+{
+  "source": "NASA Open Science Data Repository (OSDR) search API",
+  "sourcePage": "https://osdr.nasa.gov/bio/repo/",
+  "apiBase": "https://osdr.nasa.gov/osdr/data/search",
+  "queries": [
+    "term=bone loss&size=5",
+    "term=muscle atrophy spaceflight&size=8",
+    "term=plant growth spaceflight&size=8"
+  ],
+  "downloadDate": "2026-11-14",
+  "apiKeyUsed": false,
+  "note": "Only study titles, accession numbers and links are bundled. Most are animal or plant studies; the game shows them as research that helps protect astronauts and does not claim any result.",
+  "skipped": "A sleep search returned only 3 unrelated studies, so there is no sleep card."
+}

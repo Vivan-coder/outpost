@@ -4,6 +4,10 @@ A first-person Moon base game for ages 10 to 14, built for NASA Space Apps 2026 
 
 Runs in a phone or laptop browser. No server, no logins, no network calls while playing.
 
+## Judges: quick demo
+
+Open the game with `?judge=1` (or press "Quick demo (3 min)" on the title screen) for a ready base about 20 seconds before the first storm warning. Use "Reset demo" to restart it.
+
 ## Run it
 
 ```
@@ -37,6 +41,8 @@ The solar storm in the game is built from real NASA records. The game never call
 | 2024-05-11 01:36 | CME, 1263 km/s | `2024-05-11T01:36:00-CME-001` |
 | 2024-05-11 02:10 | Protons above 100 MeV at GOES | `2024-05-11T02:10:00-SEP-001` |
 | 2024-05-12 21:00 | Geomagnetic storm, Kp up to 6.33 | `2024-05-12T21:00:00-GST-001` |
+
+**Also bundled (see docs/CREDITS.md):** RadLab dose rates (`src/data/radlab.json`) for the dosimeter comparison and data cards, and OSDR study titles (`src/data/osdr.json`) for the research cards. All real data in the game carries a "Real NASA data" badge; game values carry a "Game" badge. Open the NASA Data Lab from the NASA DATA button.
 
 Four more proton records from SOHO and STEREO A, linked to the same flares, are in the JSON but are not used by the game.
 
