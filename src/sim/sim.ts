@@ -23,8 +23,15 @@ export interface ChoreDef {
   partsEvery: number; // seconds per part, 0 = none
 }
 
+// Real-record labels carried along for the HUD and info cards. The sim itself never reads them.
+export interface StormInfo {
+  flareId: string; flareClass: string; flareTimeUtc: string;
+  cmeId: string; cmeTimeUtc: string; cmeSpeedKmS: number | null; cmeAt: number; // cmeAt is game time
+  sepId: string; sepTimeUtc: string; sepInstrument: string; sepUrl: string;
+}
+
 export interface StormDef {
-  recordId: string; // key into the NASA records table
+  info: StormInfo;
   warnAt: number;
   startAt: number;
   duration: number;
@@ -47,6 +54,7 @@ export interface LevelConfig {
   airPerPerson: number;
   foodPerPerson: number;
   basePowerDraw: number;
+  baselineRadiation: number; // dose per second outside on a quiet day
   buildRadius: number;
   wearAfter: number; // no random breakdowns before this time
   wearPerSecond: number; // chance per module per second
@@ -270,13 +278,12 @@ export function step(s: SimState, cfg: LevelConfig, dt: number): void {
   if (!greenhouseUp) s.stats.greenhouseDownS += dt;
   if (s.power <= 0) s.stats.powerOutS += dt;
 
-  // Radiation only arrives during a storm, and only reaches people who are outside
-  if (stormActive) {
-    const outside = (s.playerSheltered ? 0 : 1) + s.crew.filter((c) => !c.sheltered).length;
-    const share = outside / people;
-    s.radiation = Math.min(100, s.radiation + cfg.storms[s.storm!.index].radiation * share * dt);
-    s.stats.exposedS += share * dt;
-  }
+  // Radiation reaches people who are outside: a tiny everyday dose, and a large one during a storm
+  const outside = (s.playerSheltered ? 0 : 1) + s.crew.filter((c) => !c.sheltered).length;
+  const share = outside / people;
+  const rate = cfg.baselineRadiation + (stormActive ? cfg.storms[s.storm!.index].radiation : 0);
+  s.radiation = Math.min(100, s.radiation + rate * share * dt);
+  if (stormActive) s.stats.exposedS += share * dt;
 
   if (s.time >= s.sampleAt) {
     s.sampleAt += 2;

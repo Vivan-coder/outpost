@@ -1,5 +1,7 @@
 import { caps, stars, type ChoreId, type LevelConfig, type ModuleType, type SimState } from '../sim/sim.ts';
-import { nasaRecords, NASA_SOURCE } from '../data/nasaStorm.ts';
+import { solarEvent } from '../data/moon.ts';
+import { apollo, FULL_METER_REM } from '../data/apollo.ts';
+import meta from '../data/solar-event.meta.json' with { type: 'json' };
 import { t, type TextKey } from '../i18n/en';
 import type { CrewPhase } from '../game/crew';
 
@@ -10,6 +12,7 @@ export interface UiHandlers {
   fix(): void;
   assign(crewIndex: number, chore: ChoreId | null): void;
   toggleShelter(): void;
+  toggleLanguage(): void;
   click(): void;
 }
 
@@ -57,6 +60,8 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   $('jump').textContent = t('btnJump');
   $('placeBtn').textContent = t('btnPlace');
   $('cancelBtn').textContent = t('btnCancel');
+  $('dataBtn').textContent = t('btnData');
+  $('sourceCard').replaceChildren(el('b', '', t('sourceCardTitle')), el('span', '', t('sourceCardText')));
 
   const menu = $('menu'), menuCard = $('menuCard'), overlay = $('overlay'), overlayCard = $('overlayCard');
   const banner = $('banner'), shelterBtn = $('shelterBtn'), storm = $('storm');
@@ -99,15 +104,18 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       // Banner: a storm always wins over a temporary message.
       let html = '', cls = '';
       if (sim.storm) {
+        // Each line of small print is a step of the real record chain: flare, then CME, then protons.
         const d = cfg.storms[sim.storm.index];
-        const rec = nasaRecords[d.recordId];
-        const src = t('stormSource', { date: utc(rec.timeUtc), instrument: rec.instrument, source: NASA_SOURCE });
+        const i = d.info;
         if (sim.storm.phase === 'warning') {
-          html = `${t('stormWarn', { s: Math.ceil(d.startAt - sim.time) })}<small>${src}</small>`;
+          let stage = t('stageFlare', { cls: i.flareClass, time: utc(i.flareTimeUtc) });
+          if (sim.time >= i.cmeAt && i.cmeSpeedKmS) stage += ' ' + t('stageCme', { speed: i.cmeSpeedKmS });
+          html = `${t('stormWarn', { s: Math.ceil(d.startAt - sim.time) })}<small>${stage}</small>`;
         } else {
           const safe = sim.playerSheltered;
+          const stage = t('stageSep', { time: utc(i.sepTimeUtc), instrument: i.sepInstrument });
           html = `${t('stormActive', { s: Math.ceil(d.startAt + d.duration - sim.time) })}` +
-            `<span class="state ${safe ? 'good' : 'bad'}">${t(safe ? 'safe' : 'exposed')}</span><small>${src}</small>`;
+            `<span class="state ${safe ? 'good' : 'bad'}">${t(safe ? 'safe' : 'exposed')}</span><small>${stage}</small>`;
         }
       } else if (nowS < flashUntil) {
         html = flashText; cls = 'info';
@@ -126,6 +134,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         shelterBtn.classList.toggle('clear', sim.shelterCall);
         shelterBtn.style.top = `${banner.offsetHeight + 18}px`;
       }
+      $('sourceCard').style.display = sim.storm ? 'block' : 'none';
       const active = sim.storm?.phase === 'active';
       storm.className = active ? (sim.playerSheltered ? 'on' : 'on exposed') : '';
     },
@@ -202,7 +211,41 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       menu.classList.add('on');
     },
 
-    card(opts: { title: string; paragraphs?: string[]; list?: string[]; source?: string; button: string; onClose?: () => void }): void {
+    // Menu info screen: what is real NASA data, what is historical context, and what is made up for the game.
+    dataCard(): void {
+      overlayCard.replaceChildren(el('h2', '', t('dataTitle')));
+      overlayCard.appendChild(el('p', '', t('sourceCardText')));
+      overlayCard.appendChild(el('p', '', t('dataEvent', { ar: solarEvent.activeRegionNum })));
+      const rows: [string, string][] = [
+        ...solarEvent.flares.map((f): [string, string] => [f.beginTime, t('dataFlare', { time: utc(f.beginTime), cls: f.classType })]),
+        ...solarEvent.cmes.map((c): [string, string] => [c.startTime, t('dataCme', { time: utc(c.startTime), speed: c.speedKmS ?? '?' })]),
+        ...solarEvent.seps.filter((s) => s.instrument.startsWith('GOES')).map((s): [string, string] => [s.eventTime, t('dataSep', { time: utc(s.eventTime), instrument: s.instrument })]),
+        ...solarEvent.gsts.map((g): [string, string] => [g.startTime, t('dataGst', { time: utc(g.startTime), kp: g.maxKp })]),
+      ];
+      const ul = el('ul');
+      for (const [, text] of rows.sort((a, b) => a[0].localeCompare(b[0]))) ul.appendChild(el('li', '', text));
+      overlayCard.appendChild(ul);
+      overlayCard.appendChild(el('p', '', t('dataCompress')));
+      overlayCard.appendChild(el('p', '', t('dataGame')));
+      overlayCard.appendChild(el('p', 'src', `${t('dataQuality')} ${t('dataDownloaded', { date: meta.downloadDate, url: meta.sourcePage })}`));
+      overlayCard.appendChild(el('h2', '', t('apolloTitle')));
+      const [lo, hi] = apollo.quietDoseRateMradPerHour;
+      overlayCard.appendChild(el('p', '', t('apollo1')));
+      overlayCard.appendChild(el('p', '', t('apollo2', { skin: apollo.aug1972SkinDoseRem, bfo: apollo.aug1972BloodFormingOrgansRem })));
+      overlayCard.appendChild(el('p', '', t('apollo3', { lo, hi, avg: apollo.averageMissionSkinDoseRad })));
+      overlayCard.appendChild(el('p', '', t('apollo4')));
+      overlayCard.appendChild(el('p', '', t('apolloMeter', { bfo: FULL_METER_REM })));
+      overlayCard.appendChild(el('p', 'src', t('apolloSource')));
+      const lang = el('button', 'close', t('btnLang'));
+      lang.addEventListener('click', () => h.toggleLanguage());
+      const b = el('button', 'main', t('btnClose'));
+      b.addEventListener('click', () => overlay.classList.remove('on'));
+      overlayCard.append(lang, b);
+      overlayCard.scrollTop = 0;
+      overlay.classList.add('on');
+    },
+
+    card(opts: { title: string; paragraphs?: string[]; list?: string[]; source?: string; button: string; onClose?: () => void; extra?: { label: string; onClick: () => void } }): void {
       overlayCard.replaceChildren(el('h2', '', opts.title));
       for (const p of opts.paragraphs ?? []) overlayCard.appendChild(el('p', '', p));
       if (opts.list) {
@@ -211,6 +254,11 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
         overlayCard.appendChild(ul);
       }
       if (opts.source) overlayCard.appendChild(el('p', 'src', opts.source));
+      if (opts.extra) {
+        const x = el('button', 'close', opts.extra.label);
+        x.addEventListener('click', opts.extra.onClick);
+        overlayCard.appendChild(x);
+      }
       const b = el('button', 'main', opts.button);
       b.addEventListener('click', () => { overlay.classList.remove('on'); opts.onClose?.(); });
       overlayCard.appendChild(b);

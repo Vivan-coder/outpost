@@ -24,13 +24,13 @@ export const en = {
   btnGotIt: 'Got it',
   btnAgain: 'Play again',
 
-  mod_habitat: 'Habitat',
+  mod_habitat: 'Habitat and radiation shelter',
   mod_solar: 'Solar panel',
   mod_battery: 'Battery',
   mod_lifeSupport: 'Life support',
   mod_tank: 'Storage tank',
   mod_greenhouse: 'Greenhouse',
-  modInfo_habitat: 'Shelter from radiation',
+  modInfo_habitat: 'Shielded with piled Moon soil (regolith)',
   modInfo_solar: 'Makes power from sunlight',
   modInfo_battery: 'Stores 50 more power',
   modInfo_lifeSupport: 'Turns power into oxygen and water',
@@ -62,16 +62,20 @@ export const en = {
   crewNoModule: '{name} has nowhere to do that. Build one first.',
   assigned: '{name}: {chore}',
 
-  broke_failure: '{name} broke down. Walk to it and press FIX.',
+  broke_failure: 'Equipment failure (game event): {name} broke down. Walk to it and press FIX.',
   broke_wear: '{name} wore out. Walk to it and press FIX.',
   broke_meteor: 'A meteor hit the {name}.',
   broke_surge: 'The storm knocked out a {name}.',
   partFound: 'Moon rocks counted: +1 part.',
-  meteorBanner: 'METEOR SHOWER (game event)',
+  meteorBanner: 'METEOR SHOWER (game event, not NASA data)',
 
   stormWarn: 'SOLAR STORM in {s} s. Get everyone inside.',
   stormActive: 'SOLAR STORM. Stay in the habitat. {s} s left.',
-  stormSource: 'Real event: {date} UTC · {instrument} · Source: {source}',
+  stageFlare: '{cls} solar flare detected, {time} UTC.',
+  stageCme: 'A CME left the Sun at {speed} km/s.',
+  stageSep: 'Fast protons measured at {time} UTC ({instrument}).',
+  sourceCardTitle: 'Real NASA data',
+  sourceCardText: 'Storm built from NASA CCMC DONKI space weather records. Radiation figures from the Apollo Lunar Surface Journal and NASA Science.',
   stormOver: 'The storm has passed. Send the crew back to work.',
   exposed: 'You are outside in the storm!',
   safe: 'You are sheltered.',
@@ -87,13 +91,33 @@ export const en = {
 
   infoTitle: 'That storm really happened',
   infoBody1:
-    'On {date} UTC, the GOES satellite measured a burst of fast protons from the Sun. NASA logged it as a Solar Energetic Particle event.',
+    'On {date} UTC, a GOES satellite measured a burst of fast protons from the Sun. It came after a {cls} solar flare. The NASA DONKI database logged it as a Solar Energetic Particle event.',
   infoBody2:
     'On Earth, the air and the magnetic field stop most of these particles. The Moon has neither, so astronauts have to get behind thick shielding.',
   infoBody3:
-    'During the same days, Earth had a geomagnetic storm that reached Kp 9, the top of the scale.',
+    'During the same days, Earth had a geomagnetic storm that reached Kp {kp}, the top of the scale.',
   infoBody4: 'In the game the storm is squeezed into seconds and the dose numbers are simplified.',
-  infoSource: 'Source: {source}, record {id}',
+  infoSource: 'Source: NASA CCMC DONKI, record {id}',
+
+  btnData: 'NASA DATA',
+  btnLang: 'العربية',
+  dataTitle: 'Where the data comes from',
+  dataEvent: 'The storm in this game: May 2024, sunspot region {ar}',
+  dataFlare: '{time} UTC: {cls} solar flare',
+  dataCme: '{time} UTC: coronal mass ejection (CME), {speed} km/s',
+  dataSep: '{time} UTC: energetic protons, {instrument}',
+  dataGst: '{time} UTC: geomagnetic storm at Earth, Kp up to {kp}',
+  dataCompress: 'The game squeezes about 20 real hours into under 3 minutes and keeps the order of events. Storm strength follows the flare class, because these records do not include proton levels.',
+  dataQuality: 'DONKI describes its records as prototyping quality, for research use. NOAA Space Weather Prediction Center is the official source for space weather forecasts.',
+  dataGame: 'Game events, not NASA data: equipment failures, the meteor shower, and all supply numbers.',
+  dataDownloaded: 'Records downloaded {date} from {url}',
+  apolloTitle: 'The 1972 near miss',
+  apollo1: 'In August 1972, between Apollo 16 and Apollo 17, the Sun produced a huge storm. Nobody was on the Moon at the time.',
+  apollo2: 'A crew on the surface could have received about {skin} rem to the skin and {bfo} rem to blood-forming organs. That is enough to make people very sick.',
+  apollo3: 'On a quiet day the Apollo crews measured only about {lo} to {hi} millirad per hour. The nine Moon missions averaged {avg} rad for a whole trip.',
+  apollo4: 'NASA says astronauts could shelter under piled Moon soil, called regolith. That is why your habitat is the radiation shelter.',
+  apolloMeter: 'In the game, a full radiation bar stands for a dose like the 1972 estimate ({bfo} rem).',
+  apolloSource: 'Historical context, not DONKI data. Sources: Apollo Lunar Surface Journal, "Radiation Environment"; NASA Science, "How NASA Will Protect Astronauts From Space Radiation at the Moon".',
 
   winTitle: 'Rescue ship has landed!',
   winBody: 'Everyone made it. Rank: {rank}',
@@ -112,7 +136,7 @@ export const en = {
   why_radiation: 'People were outside for about {s} seconds of solar storm. Call the crew to shelter during the warning and stand next to the habitat.',
   reportTitle: 'Mission report',
   reportStats: 'Survived {t} · {fixes} fixes · {builds} modules built',
-  creditsLine: 'Storm data: NASA DONKI. Game events, sounds and art are original. Built with Three.js.',
+  creditsLine: 'Storm data: NASA CCMC DONKI. Radiation context: Apollo Lunar Surface Journal and NASA Science. Game events, sounds and art are original. Built with Three.js.',
 } as const;
 
 export type TextKey = keyof typeof en;
@@ -124,3 +148,4 @@ export function t(key: TextKey, vars?: Record<string, string | number>): string 
   return s;
 }
 export const setLanguage = (table: Record<TextKey, string>): void => { current = table; };
+export const isRtl = (): boolean => current !== en;

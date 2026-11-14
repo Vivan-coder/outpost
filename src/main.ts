@@ -6,11 +6,16 @@ import { Player, type Blocker } from './game/player';
 import { World } from './game/world';
 import { Crew } from './game/crew';
 import { assign, build, canPlace, createSim, fix, setShelter, step, type ModuleType } from './sim/sim.ts';
-import { moon } from './data/moon.ts';
-import { nasaRecords, NASA_SOURCE } from './data/nasaStorm.ts';
+import { moon, solarEvent } from './data/moon.ts';
 import { createUi } from './ui/ui';
 import { sfx, unlockAudio } from './audio/sfx';
-import { t, type TextKey } from './i18n/en';
+import { t, setLanguage, type TextKey } from './i18n/en';
+import { ar } from './i18n/ar';
+
+// Language is chosen before any text is read. Switching reloads the page.
+let lang = 'en';
+try { lang = localStorage.getItem('outpost.lang') ?? 'en'; } catch { /* storage blocked: stay in English */ }
+if (lang === 'ar') { setLanguage(ar); document.documentElement.lang = 'ar'; document.documentElement.dir = 'rtl'; }
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const fpsEl = document.getElementById('fps') as HTMLElement;
@@ -38,6 +43,10 @@ scene.add(createTerrain(), createStars(), createEarth());
 
 const level = moon;
 const sim = createSim(level);
+// Testing aid: ?skip=150 starts the mission that many seconds in (nobody acts during the skipped time).
+const skipTo = Number(new URLSearchParams(location.search).get('skip')) || 0;
+while (sim.time < skipTo && sim.status === 'running') step(sim, level, 1 / level.tickHz);
+sim.outbox.length = 0;
 const blockers: Blocker[] = [];
 const world = new World(scene, blockers, level);
 world.sync(sim);
@@ -52,6 +61,11 @@ let clock = 0; // seconds of unpaused play, for banners and animation
 
 const modName = (type: ModuleType) => t(`mod_${type}` as TextKey);
 const unlockPointer = () => { if (document.pointerLockElement) document.exitPointerLock(); };
+
+function switchLanguage(): void {
+  try { localStorage.setItem('outpost.lang', lang === 'ar' ? 'en' : 'ar'); } catch { /* storage blocked */ }
+  location.reload();
+}
 
 const ui = createUi(level, {
   click: () => sfx.click(),
@@ -81,6 +95,7 @@ const ui = createUi(level, {
       }
     }
   },
+  toggleLanguage: switchLanguage,
   toggleShelter() {
     setShelter(sim, !sim.shelterCall);
     if (sim.shelterCall) sfx.alarm(); else sfx.allClear();
@@ -92,6 +107,7 @@ const openBuild = () => { unlockPointer(); placing = null; sfx.click(); ui.openB
 const openCrew = () => { unlockPointer(); sfx.click(); ui.openCrew(sim, phases()); };
 document.getElementById('buildBtn')!.addEventListener('click', openBuild);
 document.getElementById('crewBtn')!.addEventListener('click', openCrew);
+document.getElementById('dataBtn')!.addEventListener('click', () => { unlockPointer(); sfx.click(); ui.dataCard(); });
 
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
@@ -133,6 +149,7 @@ ui.card({
   list: [t('tut1'), t('tut2'), t('tut3'), t('tut4'), t('tut5')],
   button: t('btnStart'),
   onClose: unlockAudio,
+  extra: { label: t('btnLang'), onClick: switchLanguage },
 });
 
 function handleEvents(): void {
@@ -151,15 +168,16 @@ function handleEvents(): void {
         sfx.allClear();
         ui.toast(t('stormOver'), 'good');
         if (e.index === 0) {
-          const rec = nasaRecords[level.storms[0].recordId];
+          const info = level.storms[0].info;
+          const kp = Math.max(...solarEvent.gsts.map((g) => g.maxKp));
           unlockPointer();
           ui.card({
             title: t('infoTitle'),
             paragraphs: [
-              t('infoBody1', { date: rec.timeUtc.replace('T', ' ').replace('Z', '') }),
-              t('infoBody2'), t('infoBody3'), t('infoBody4'),
+              t('infoBody1', { date: info.sepTimeUtc.replace('T', ' ').replace('Z', ''), cls: info.flareClass }),
+              t('infoBody2'), t('infoBody3', { kp }), t('infoBody4'),
             ],
-            source: `${t('infoSource', { source: NASA_SOURCE, id: rec.id })} · ${rec.url}`,
+            source: `${t('infoSource', { id: info.sepId })} · ${info.sepUrl}`,
             button: t('btnGotIt'),
           });
         }
