@@ -479,15 +479,25 @@ export class WorkSession {
 
   private flash(key: TextKey): void { this.flashKey = key; this.flashT = 1.6; }
 
-  private pick(ndc: THREE.Vector2, camera: THREE.Camera): { id: string; uv: THREE.Vector2 | null } | null {
-    this.ray.setFromCamera(ndc, camera);
+  private hitTest(): { id: string; uv: THREE.Vector2 | null } | null {
     const hits = this.ray.intersectObjects(this.rig.hots.filter((h) => h.visible), false);
     if (!hits.length) return null;
     return { id: hits[0].object.userData.hot as string, uv: hits[0].uv ?? null };
   }
 
   pointerMove(ndc: THREE.Vector2, camera: THREE.Camera): void {
-    const hit = this.pick(ndc, camera);
+    this.ray.setFromCamera(ndc, camera);
+    this.moveHit(this.hitTest());
+  }
+
+  // VR: the same, but with a controller ray instead of a cursor.
+  pointerMoveRay(r: THREE.Ray): void { this.ray.ray.copy(r); this.moveHit(this.hitTest()); }
+  pointerDownRay(r: THREE.Ray): void { this.ray.ray.copy(r); this.downHit(this.hitTest()); }
+  // In VR the right tool is picked for you, so nobody has to reach for a toolbar.
+  get needTool(): Tool | null { return this.done ? null : this.steps[this.idx]?.tool ?? null; }
+  autoTool(): void { const n = this.needTool; if (n && (this.tool !== n || this.step.kind === 'pickTool')) this.setTool(n); }
+
+  private moveHit(hit: { id: string; uv: THREE.Vector2 | null } | null): void {
     this.hover = hit?.id ?? null;
     this.rig.setHover(this.hover);
     if (this.pressed && hit?.uv && this.kind === 'solar' && this.step?.kind === 'wipe' && this.tool === 'brush') this.rig.drag(hit.id, hit.uv);
@@ -495,9 +505,13 @@ export class WorkSession {
   }
 
   pointerDown(ndc: THREE.Vector2, camera: THREE.Camera): void {
+    this.ray.setFromCamera(ndc, camera);
+    this.downHit(this.hitTest());
+  }
+
+  private downHit(hit: { id: string; uv: THREE.Vector2 | null } | null): void {
     if (this.done) return;
     this.pressed = true;
-    const hit = this.pick(ndc, camera);
     this.pressedOn = hit?.id ?? null;
     if (!hit) return;
     const step = this.step;

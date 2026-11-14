@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <link rel="icon" href="data:," />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Outpost</title>
   <style>
@@ -64,6 +65,8 @@
     #judgeBar { position: fixed; left: var(--sl); bottom: var(--sb); display: none; } body.judge #judgeBar { display: block; } #judgeBar button { background: #44506a; border-radius: 12px; padding: 12px 14px; min-height: 48px; font-size: 12px; font-weight: 800; }
     #fps { display: none; } body.showfps #fps { display: block; }
     #left .pills button { min-height: 48px; } #hotbar button { min-width: 48px; min-height: 48px; } #workBack { min-height: 40px; } .chip { min-height: 48px; } .close, .opt { min-height: 48px; }
+    #vrBtn { position: fixed; right: var(--sr); top: calc(var(--st) + 60px); z-index: 9; background: #1d4f91; border: 2px solid #9fd0ff; border-radius: 12px; padding: 12px 16px; min-height: 48px; font-weight: 800; font-size: 13px; }
+    body.xr #vrBtn { display: none; }
     #subtitle { position: fixed; left: 50%; bottom: calc(var(--sb) + 150px); transform: translateX(-50%); width: min(86vw, 560px); display: none; box-sizing: border-box;
       background: #0b1220ee; border: 1px solid #7fb0ff; border-radius: 14px; padding: 9px 14px; font-size: 14px; line-height: 1.35; text-align: center; pointer-events: none; }
     #subtitle b { color: #ffd24a; }

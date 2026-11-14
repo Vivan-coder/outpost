@@ -482,6 +482,13 @@ export const en = {
   creditsAssets: 'Moon regolith textures: "Moon 01" by Greg Zaal, Rico Cilliers, Jenelle van Heerden and Dario Barresi, from Poly Haven, licence CC0. Sky lighting: "Kloppenheim 02 (Pure Sky)" by Greg Zaal and Jarod Guest, from Poly Haven, licence CC0.',
   creditsData: 'Data: NASA CCMC DONKI, NASA OSDR RadLab, NASA OSDR, and the Apollo Lunar Surface Journal. Details are in the NASA Data Lab.',
   creditsOwn: 'All models, sounds and animations are original, built in code. Built with Three.js (MIT) and Vite (MIT). Code written with AI assistance (Claude Code). The helper bot is not built yet.',
+  btnVr: 'Enter VR',
+  vrExit: 'Exit VR',
+  vrShelter: 'Call crew to shelter',
+  vrFF: 'Fast-forward x3',
+  vrHold: 'Holding',
+  vrNoDesktop: 'This screen is only on the desktop version for now.',
+  vrHelp: 'VR: right stick forward = teleport · right stick sideways = turn · trigger = use · left Y/X = menu',
 } as const;
 
 export type TextKey = keyof typeof en;

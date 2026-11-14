@@ -7,13 +7,16 @@
     "dev": "vite --host",
     "build": "npm run validate-layout && tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "validate-layout": "node scripts/validate-layout.ts"
+    "validate-layout": "node scripts/validate-layout.ts",
+    "test:vr": "node tests/vr.test.mjs"
   },
   "dependencies": {
     "three": "^0.187.0"
   },
   "devDependencies": {
     "@types/three": "^0.187.0",
+    "iwer": "^2.8.0",
+    "playwright-core": "^1.65.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   }

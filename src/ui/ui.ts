@@ -32,6 +32,15 @@ export interface UiHandlers {
 }
 
 interface Bar { fill: HTMLElement; value: HTMLElement; row: HTMLElement; last: number }
+// Set while a VR session is running: screens that would be DOM pop-ups are shown on VR panels instead.
+export interface VrHook {
+  note(key: TextKey): void;
+  crew(only: number | null): void;
+  menu(): void;
+  card(title: string, lines: string[], button: string, onClose?: () => void): void;
+  toast(text: string): void;
+  subtitle(name: string, text: string, seconds: number): void;
+}
 export interface CardOpts { title: string; paragraphs?: string[]; list?: string[]; source?: string; button: string; onClose?: () => void; extra?: { label: string; onClick: () => void }[] }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
@@ -104,6 +113,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
   let subTimer = 0;
   let goalsOpen = false, lastSim: SimState | null = null, workSig = '';
   const collected = new Set<CardId>();
+  let vrHook: VrHook | null = null;
   const badge = (kind: 'real' | 'game' | 'hist', info?: { source: string; date: string; url: string }): HTMLElement => {
     const b = el('button', `badge ${kind}`, t(kind === 'real' ? 'badgeReal' : kind === 'game' ? 'badgeGame' : 'badgeHist') + (info ? ' ⓘ' : ''));
     if (info) b.addEventListener('click', (e) => { e.stopPropagation(); ui.dataInfo(info); });
@@ -384,6 +394,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // Subtitle line for what the crew say, so it can be read even when they are far away.
     subtitle(name: string, text: string, seconds: number): void {
+      vrHook?.subtitle(name, text, seconds);
       const box = $('subtitle');
       if (name) box.replaceChildren(el('b', '', name), document.createTextNode(': ' + text));
       else box.replaceChildren(document.createTextNode(text));
@@ -394,6 +405,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // One quiz question with numbered answers. onPick gets the chosen index.
     openQuiz(question: string, options: string[], onPick: (i: number) => void): void {
+      if (vrHook) { vrHook.note('vrNoDesktop'); return; }
       menuKind = 'quiz';
       menuCard.replaceChildren(el('h2', '', t('quizTitle')), el('p', '', question));
       options.forEach((o, i) => menuCard.appendChild(option(i + 1, o, '', '', () => { closeMenu(); onPick(i); })));
@@ -418,6 +430,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // The Space Weather console: the real DONKI sequence for the whole event, with where the game storm is now.
     weatherCard(sim: SimState): void {
+      if (vrHook) { vrHook.note('vrNoDesktop'); return; }
       overlayCard.replaceChildren(el('h2', '', t('weatherTitle')), badge('real', DONKI), el('p', '', t('weatherIntro')));
       const c = document.createElement('canvas');
       c.width = 760; c.height = 340;
@@ -447,6 +460,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // One place that lists every real dataset, how the game uses it and where it comes from.
     dataLab(): void {
+      if (vrHook) { vrHook.menu(); return; }
       overlayCard.replaceChildren(el('h2', '', t('labTitle')), el('p', '', t('labIntro')));
       const rows: { key: TextKey; kind: 'real' | 'hist'; info: { source: string; date: string; url: string } }[] = [
         { key: 'lab_donki', kind: 'real', info: DONKI },
@@ -469,6 +483,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // Mission Log: the data cards found so far, each with its source.
     missionLog(): void {
+      if (vrHook) { vrHook.menu(); return; }
       overlayCard.replaceChildren(el('h2', '', t('logTitle')), el('p', '', t('logCount', { n: collected.size, m: CARD_IDS.length })));
       for (const id of CARD_IDS) {
         const row = el('div', 'logRow');
@@ -489,6 +504,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     },
 
     credits(): void {
+      if (vrHook) { vrHook.note('vrNoDesktop'); return; }
       ui.card({ title: t('creditsTitle'), paragraphs: [t('creditsAssets'), t('creditsData'), t('creditsOwn')], button: t('btnClose') });
     },
 
@@ -508,6 +524,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     },
 
     toast(text: string, kind: '' | 'good' | 'bad' | 'bot' = ''): void {
+      vrHook?.toast(text);
       const box = $('toasts');
       const n = el('div', `toast ${kind}`, text);
       box.appendChild(n);
@@ -515,7 +532,10 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
       setTimeout(() => n.remove(), kind === 'bot' ? 7000 : 4500);
     },
 
+    setVrHook(hk: VrHook | null): void { vrHook = hk; },
+
     openBuild(sim: SimState): void {
+      if (vrHook) { vrHook.note('vrNoDesktop'); return; }
       menuKind = 'build';
       menuCard.replaceChildren(el('h2', '', t('buildTitle')), el('p', '', `${t('parts')}: ${sim.parts}`));
       let affordable = false;
@@ -534,6 +554,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // Two steps: pick who, then pick what. `only` jumps straight to one crew member.
     openCrew(sim: SimState, activities: string[], only: number | null = null): void {
+      if (vrHook) { vrHook.crew(only); return; }
       menuKind = 'crew';
       const who = () => {
         menuCard.replaceChildren(el('h2', '', t('crewPick')));
@@ -566,6 +587,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // Engineering console: spend research points on machine levels (Mk1 to Mk3).
     openUpgrades(sim: SimState): void {
+      if (vrHook) { vrHook.note('vrNoDesktop'); return; }
       menuKind = 'upgrade';
       const draw = () => {
         menuCard.replaceChildren(el('h2', '', t('upTitle')), el('p', '', t('upResearch', { n: sim.research })));
@@ -587,6 +609,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     },
 
     openPause(): void {
+      if (vrHook) { vrHook.menu(); return; }
       menuKind = 'pause';
       menuCard.replaceChildren(el('h2', '', t('pauseTitle')));
       const resume = el('button', 'main', t('btnResume'));
@@ -606,6 +629,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
 
     // Menu info screen: what is real NASA data, what is historical context, and what is made up for the game.
     dataCard(): void {
+      if (vrHook) { vrHook.note('vrNoDesktop'); return; }
       overlayCard.replaceChildren(el('h2', '', t('dataTitle')));
       overlayCard.appendChild(el('p', '', t('sourceCardText')));
       overlayCard.appendChild(el('p', '', t('dataEvent', { ar: solarEvent.activeRegionNum })));
@@ -638,6 +662,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     },
 
     card(opts: CardOpts): void {
+      if (vrHook) { vrHook.card(opts.title, [...(opts.paragraphs ?? []), ...(opts.list ?? []), ...(opts.source ? [opts.source] : [])], opts.button, opts.onClose); return; }
       overlayCard.replaceChildren(el('h2', '', opts.title));
       for (const p of opts.paragraphs ?? []) overlayCard.appendChild(el('p', '', p));
       if (opts.list) {
@@ -655,6 +680,7 @@ export function createUi(cfg: LevelConfig, h: UiHandlers) {
     },
 
     end(sim: SimState, onAgain: () => void): void {
+      if (vrHook) { const won = sim.status === 'won'; vrHook.card(t(won ? 'winTitle' : 'loseTitle'), [won ? t('winBody', { rank: t(`rank${stars(sim)}` as TextKey) }) : t(`lose_${sim.failCause}` as TextKey)], t('btnAgain'), onAgain); return; }
       closeMenu();
       const won = sim.status === 'won';
       overlayCard.replaceChildren(el('h2', '', t(won ? 'winTitle' : 'loseTitle')));

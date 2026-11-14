@@ -51,6 +51,8 @@ All 3D models are built from primitives in code, and all sounds are synthesised 
 |---|---|
 | Three.js | MIT |
 | Vite | MIT |
+| IWER (Immersive Web Emulation Runtime, by Meta), dev/test only | MIT |
+| playwright-core, dev/test only | Apache-2.0 |
 | TypeScript | Apache-2.0 |
 | cloudflared (phone testing tunnel only, not part of the game) | Apache-2.0 |
 

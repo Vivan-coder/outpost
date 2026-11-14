@@ -71,3 +71,22 @@ Downloaded 2026-11-14 from `https://ccmc.gsfc.nasa.gov/DONKI/WS/get/{FLR,SEP,CME
 **Data quality.** DONKI states that its real-time information "should be considered only as prototyping quality and in research context". NOAA Space Weather Prediction Center is the United States Government official source for space weather forecasts.
 
 Full credits, including tools and AI use, are in `docs/CREDITS.md`.
+
+## VR / WebXR
+
+VR mode built with WebXR and tested in a WebXR emulator; testing on a physical headset is planned. It has not been tried on a real headset, so real frame rate, comfort and hand tracking are unverified.
+
+**Try it.** Open the game over HTTPS in the Meta Quest Browser, or in desktop Chrome with the Immersive Web Emulator extension, and press **Enter VR** (the button only appears when the browser supports immersive VR). Start the game on the desktop first (the cinematic is skipped in VR).
+
+**Controls.**
+- Teleport: push the right thumbstick forward, aim the arc (green = valid floor, red = blocked or too far), release. Walls block teleporting.
+- Snap turn: right thumbstick left or right (30 degrees).
+- Trigger: use whatever the ray points at. Hold it on a machine to start a task, tap it on a door, a crew member or a console.
+- Left Y or X button: open the menu (crew options, call crew to shelter, fast-forward, Data Lab, Mission Log, exit).
+- Wrist panel on the left controller shows the meters, the timer, the dosimeter and the current prompt. Subtitles and speech bubbles are world-space.
+
+**Tasks in VR.** The work panel pops out at chest height instead of moving the camera. Point and hold the trigger; sweep the controller to wipe dust. The right tool is picked for you. Twisting to unscrew and grip-grab are not built (a click unscrews).
+
+**Known limits.** No VR on iPhone Safari. Hand tracking is not used. Not available in VR yet: building, the engineering console (upgrades), the storm quiz, the space weather console, the astronaut creator (none exists yet) and the full Data Lab (a text summary is shown). Smooth movement is not built; only teleport and snap turn exist. Post-processing (bloom) is switched off inside VR. Arabic panels use right-to-left drawing but were not checked in the emulator.
+
+**Proof.** `npm run test:vr` runs the game in headless Chrome with the IWER emulator (a headset and two controllers) and checks: the button appears, the session starts, both eyes render, teleport works and is blocked by walls, snap turn, the wrist panel, a menu click with the controller ray, the solar-panel cleaning task, a storm warning, and leaving VR, with no console errors. Screenshots and a video clip are in `docs/vr-proof/` (`vr-demo.mp4`).

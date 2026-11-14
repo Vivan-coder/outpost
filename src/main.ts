@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { createTerrain, createFarGround, createRocks } from './render/terrain';
+import { createTerrain, createFarGround, createRocks, heightAt } from './render/terrain';
 import { Intro, createLander, LANDER_AT } from './game/intro';
 import { createStars, createEarth, createSun } from './render/sky';
 import { createInput } from './game/input';
@@ -15,7 +15,7 @@ import { Crew } from './game/crew';
 import { TaskRunner, type TaskKind, type TaskResult, type TaskTarget } from './game/tasks';
 import { WorkSession, type WorkEnv } from './game/work';
 import type { WorkKind } from './data/workTasks';
-import { harvestPlant, HARVEST_FOOD, assign, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
+import { caps, crewOptions, harvestPlant, HARVEST_FOOD, assign, type TaskId, build, canPlace, completeJob, createSim, fix, setShelter, stationExposure, step, taskSpeed, upgrade, upgradeCost, type ModuleType, type SimState } from './sim/sim.ts';
 import { STATION_SPOTS, TASK_SPOT } from './game/layout';
 import { moon, solarEvent } from './data/moon.ts';
 import { createUi, factText } from './ui/ui';
@@ -48,6 +48,9 @@ const scene = new THREE.Scene();
 const sky = new THREE.Color(0x000000);
 scene.background = sky;
 const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 2000);
+// The camera sits in a rig. It stays at the origin on desktop and phone; in VR the rig is the player's body.
+const rig = new THREE.Group();
+scene.add(rig); rig.add(camera);
 
 // Harsh single sun, almost no fill: there is no atmosphere to scatter light on the Moon.
 const sun = new THREE.DirectionalLight(0xfff4e0, 2.7);
@@ -85,7 +88,7 @@ const input = createInput(canvas);
 const player = new Player(camera, blockers);
 const runner = new TaskRunner();
 const keys = new Set<string>();
-if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, testWork: () => selfTestWork(), intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, renderer, rig, vr: () => vr, startVr: () => startVr(), testWork: () => selfTestWork(), intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
 
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }
@@ -144,7 +147,7 @@ function applyEnvironment(): void {
   workScene.environment = on ? envMap : null; workScene.environmentIntensity = 0.9;
 }
 setTimeout(() => {
-  new RGBELoader().load('assets/sky/kloppenheim_02_puresky_1k.hdr', (tex) => {
+  new HDRLoader().load('assets/sky/kloppenheim_02_puresky_1k.hdr', (tex) => {
     const pm = new THREE.PMREMGenerator(renderer);
     envMap = pm.fromEquirectangular(tex).texture;
     tex.dispose(); pm.dispose();
@@ -223,6 +226,92 @@ const ui = createUi(level, {
   leaveWork: () => leaveWork(),
 });
 
+// ---- VR (WebXR): loaded only when the player presses Enter VR, so it never touches the normal game ----
+let vr: import('./vr/vr').Vr | null = null;
+let vrPaused = false;
+const xrOn = () => renderer.xr.isPresenting;
+const vrHelpers = {
+  hud() {
+    const cap = caps(sim, level);
+    const p = (v: number, m: number) => Math.max(0, Math.min(100, (v / m) * 100));
+    const mm = Math.max(0, level.missionLength - sim.time);
+    return {
+      bars: [
+        { label: t('power'), pct: p(sim.power, cap.power), color: '#ffd24a', warn: sim.power / cap.power < 0.25 },
+        { label: t('air'), pct: p(sim.air, cap.air), color: '#5ad1ff', warn: sim.air / cap.air < 0.25 },
+        { label: t('food'), pct: p(sim.food, cap.food), color: '#7be07b', warn: sim.food / cap.food < 0.25 },
+        { label: t('res_health'), pct: p(sim.health, 100), color: '#c77dff', warn: sim.health < 25 },
+        { label: t('radiation'), pct: Math.min(100, sim.radiation), color: '#ff6b5a', warn: sim.radiation > 60 },
+      ],
+      timer: `${Math.floor(mm / 60)}:${String(Math.floor(mm % 60)).padStart(2, '0')}`,
+      sol: t('sol', { n: Math.floor(sim.time / level.solLength) + 1 }),
+      dose: t('doseGame', { n: Math.round(sim.radiation * 10) }),
+      banner: (byId('banner').innerText || '').split('\n')[0],
+      prompt: (byId('prompt').innerText || ''),
+      hold: runner.stage === 'hold' ? runner.hold : 0,
+      job: (byId('jobs').innerText.split('\n')[1] || ''),
+    };
+  },
+};
+function setupVrButton(): void {
+  void import('./vr/vr').then(async (m) => {
+    if (!(await m.Vr.supported())) return;
+    const b = document.createElement('button');
+    b.id = 'vrBtn'; b.textContent = t('btnVr');
+    b.addEventListener('click', () => { void startVr(); });
+    document.body.appendChild(b);
+  });
+}
+async function startVr(): Promise<void> {
+  if (intro) endIntro(); // the cinematic moves the camera, which is never done to a VR player
+  const m = await import('./vr/vr');
+  if (!vr) {
+    vr = new m.Vr({
+      renderer, scene, camera, rig,
+      heightAt: (x, z) => heightAt(x, z),
+      blockers: () => blockers,
+      setPlayer: (x, z, yaw) => { player.pos.x = x; player.pos.z = z; player.pos.y = heightAt(x, z); player.yaw = yaw; },
+      press: (on) => { if (on) { keys.add('KeyE'); actTap(); } else keys.delete('KeyE'); },
+      work: () => work,
+      hud: () => vrHelpers.hud(),
+      labels: { resume: t('btnResume'), crew: t('btnCrew'), shelter: t('vrShelter'), fastForward: t('vrFF'), data: t('btnLab'), log: t('btnLog'), exit: t('vrExit'), back: t('btnBack'), ok: t('btnGotIt'), rest: t('choreRest'), menu: t('pauseTitle'), hold: t('vrHold') },
+      crew: () => sim.crew.map((c, i) => ({ name: c.name, doing: c.chore ? t(`task_${c.chore}` as TextKey) : t(`act_${activities()[i]}` as TextKey), options: crewOptions(sim, level).slice(0, 5).map((o) => ({ id: o.id, label: t(`task_${o.id}` as TextKey) })) })),
+      assign: (i, id) => { assign(sim, level, i, id as TaskId | null); if (id) ui.toast(t('assigned', { name: sim.crew[i].name, chore: t(`task_${id}` as TextKey) }), 'good'); },
+      callShelter: () => { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
+      toggleFF: () => toggleFF(),
+      dataLines: () => [t('labIntro'), t('lab_donki'), t('lab_radlab'), t('lab_osdr'), t('lab_alsj')],
+      logLines: () => ui.collectedIds().length ? ui.collectedIds().map((id) => `${cardInfo(id).title}: ${cardInfo(id).line}`) : [t('logLocked')],
+      setPaused: (on) => { vrPaused = on; },
+      rtl: () => document.documentElement.dir === 'rtl',
+      onStart: () => {
+        document.body.classList.add('xr');
+        ui.setVrHook({
+          note: (k) => vr?.toast(t(k)),
+          crew: (only) => vr?.crewMenu(only),
+          menu: () => vr?.mainMenu(),
+          card: (title, lines, button, onClose) => vr?.card(title, lines, button, onClose),
+          toast: (text) => vr?.toast(text),
+          subtitle: (name, text, sec) => vr?.subtitle(name, text, sec),
+        });
+        for (const id of ['menu', 'overlay']) byId(id).classList.remove('on');
+        unlockAudio();
+        vr?.toast(t('vrHelp'));
+      },
+      onEnd: () => {
+        document.body.classList.remove('xr');
+        ui.setVrHook(null);
+        if (work) leaveWork();
+        camera.position.set(player.pos.x, player.pos.y + 1.7, player.pos.z);
+        player.update(0, input.state);
+        resize();
+      },
+    });
+  }
+  rig.position.set(player.pos.x, heightAt(player.pos.x, player.pos.z), player.pos.z);
+  rig.rotation.y = player.yaw;
+  await vr.enter();
+}
+
 // ---- Work mode: close-up hands-on tasks ----
 // The machine being worked on is shown on its own stage with its own lights and a plain backdrop. Nothing from the
 // base (walls, props, crew, other machines) is in that scene, so nothing can get in the way. The world is untouched.
@@ -265,6 +354,7 @@ function startWork(kind: WorkKind, tg: TaskTarget): void {
   let ses = sessions.get(key);
   if (!ses) { ses = new WorkSession(kind, workEnv, workFx); sessions.set(key, ses); }
   work = ses; workTarget = tg; workDoneAt = 0;
+  if (xrOn()) { scene.add(ses.group); vr?.placeWork(ses.group); input.enabled = false; sfx.click(); return; }
   world.markersHidden = true;
   workScene.add(ses.group);
   stageCamera(true);
@@ -277,10 +367,11 @@ function startWork(kind: WorkKind, tg: TaskTarget): void {
 // Leaving keeps the session, so the steps already done stay done when you come back.
 function leaveWork(): void {
   if (!work) return;
-  workScene.remove(work.group);
+  work.group.removeFromParent();
   work = null; workTarget = null;
   world.markersHidden = false;
   input.enabled = true;
+  if (xrOn()) return;
   stageCamera(false);
   fadeFromBlack();
   player.update(0, input.state);
@@ -291,14 +382,16 @@ function finishWork(): void {
   const tg = workTarget, ses = work;
   if (!tg || !ses) return;
   sessions.delete(`${ses.kind}:${tg.moduleId}`);
-  workScene.remove(ses.group);
+  ses.group.removeFromParent();
   work = null; workTarget = null;
   world.markersHidden = false;
   input.enabled = true;
-  stageCamera(false);
-  fadeFromBlack();
-  player.update(0, input.state);
-  ui.setWork(null, isTouch());
+  if (!xrOn()) {
+    stageCamera(false);
+    fadeFromBlack();
+    player.update(0, input.state);
+    ui.setWork(null, isTouch());
+  }
   finishTask(tg, 'done');
   const why = tg.kind === 'solar' ? 'dustPanels' : tg.kind === 'water' ? 'water90' : null;
   if (why) { const f = factText(why); if (f) ui.toast(`${t('whyTitle')}: ${f}`, 'bot'); }
@@ -327,6 +420,7 @@ function selfTestWork(): string[] {
 function workFrame(dt: number): void {
   if (!work) return;
   work.update(dt);
+  if (xrOn()) { if (work.done) { workDoneAt += dt; if (workDoneAt > 0.9) finishWork(); } return; }
   const f = work.frame(52, camera.aspect);
   camera.position.copy(f.pos);
   camera.quaternion.identity();
@@ -786,6 +880,7 @@ let simAcc = 0;
 ui.update(sim, clock, 0);
 ui.setJobs(jobList());
 player.update(0, input.state); // place the camera before the first (paused) frame
+setupVrButton();
 
 // FPS meter: average + worst frame over each half second, for the phone gate.
 let last = performance.now(), acc = 0, frames = 0, worst = 0;
@@ -795,7 +890,8 @@ renderer.setAnimationLoop((now) => {
   const rawDt = (now - last) / 1000;
   last = now;
   const dt = Math.min(rawDt, 0.05);
-  const paused = ui.blocking() || sim.status !== 'running' || !!intro;
+  const paused = ui.blocking() || sim.status !== 'running' || !!intro || vrPaused;
+  if (xrOn()) vr?.update(dt);
   if (intro) { intro.update(dt); if (intro.done) endIntro(); }
 
   if (ffMul > 1 && urgent()) { ffMul = 1; byId('btnFF').classList.remove('on'); }
@@ -805,7 +901,7 @@ renderer.setAnimationLoop((now) => {
     clock += dt;
     const inp = rep === 0 ? input.state : { ...input.state, lookDX: 0, lookDY: 0, jump: false };
     const lookDX = inp.lookDX;
-    if (!work) player.update(dt, inp, keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    if (!work && !xrOn()) player.update(dt, inp, keys.has('ShiftLeft') || keys.has('ShiftRight'));
     const px = player.pos.x, pz = player.pos.z;
 
     // Only the shelter stops the radiation; the station's thin walls stop half.
@@ -876,8 +972,9 @@ renderer.setAnimationLoop((now) => {
   sun.position.set(player.pos.x + 60, player.pos.y + 45, player.pos.z + 30);
 
   shadowTick++;
-  if (quality === 'high' || shadowTick % 2 === 0) renderer.shadowMap.needsUpdate = true;
-  if (quality === 'low') renderer.render(work ? workScene : scene, camera);
+  if (quality === 'high' || shadowTick % 2 === 0 || xrOn()) renderer.shadowMap.needsUpdate = true;
+  if (xrOn()) renderer.render(scene, camera); // no post-processing in VR
+  else if (quality === 'low') renderer.render(work ? workScene : scene, camera);
   else { renderPass.scene = work ? workScene : scene; composer.render(); }
 
   acc += rawDt; frames++; worst = Math.max(worst, rawDt);
