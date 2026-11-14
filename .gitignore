@@ -1,2 +1,8 @@
 node_modules
 dist
+
+# trailer outputs (videos, raw screen captures, the demo song): never committed or deployed
+docs/trailer/out/
+tools/trailer/music-override.*
+tools/trailer/node_modules/
+docs/phone-test-*.png

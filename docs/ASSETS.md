@@ -14,3 +14,7 @@ All 3D models are still built in code from primitives (original). I did not find
 
 ## Not licensed for use (rules)
 CC-BY-NC, CC-BY-ND, GPL-only art, unclear "free download" licences, rips from commercial games and anything with a trademark or agency logo.
+
+## Home-screen icons
+
+`public/icon-192.png`, `public/icon-512.png`: original art drawn in code (`tools/trailer/icons.mjs`): a Moon with a base dome, a star field and a sun glow. No outside images or fonts. Used by the web app manifest so the game can be added to a phone home screen and run full screen.

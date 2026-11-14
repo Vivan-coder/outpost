@@ -2,14 +2,47 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <link rel="icon" href="data:," />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#050a1c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Outpost" />
+  <script>
+    // Phones (especially Safari) report a screen that is taller than the part you can see: the address bar and the bottom
+    // toolbar cover it. Measure the visible area and how much of the fixed layer is hidden, and let the CSS keep every
+    // button and panel inside the visible part. Runs before the page is drawn and again whenever the bars move.
+    (function () {
+      var r = document.documentElement;
+      function fit() {
+        var vv = window.visualViewport;
+        var h = vv ? vv.height : window.innerHeight;
+        r.style.setProperty('--app-h', h + 'px');
+        r.style.setProperty('--vh', h / 100 + 'px');
+        var p = document.getElementById('vpProbe');
+        if (vv && p) {
+          var bottom = p.getBoundingClientRect().bottom;
+          r.style.setProperty('--vo-b', Math.max(0, Math.round(bottom - (vv.height + vv.offsetTop))) + 'px');
+          r.style.setProperty('--vo-t', Math.max(0, Math.round(vv.offsetTop)) + 'px');
+        }
+      }
+      window.__fitViewport = fit;
+      fit();
+      window.addEventListener('resize', fit);
+      window.addEventListener('orientationchange', function () { setTimeout(fit, 50); setTimeout(fit, 400); });
+      document.addEventListener('DOMContentLoaded', function () { fit(); setTimeout(fit, 300); setTimeout(fit, 1200); });
+      if (window.visualViewport) { window.visualViewport.addEventListener('resize', fit); window.visualViewport.addEventListener('scroll', fit); }
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Outpost</title>
   <style>
     :root { --panel: #0b1220e6; --line: #ffffff26; --accent: #ffd24a; --bad: #ff6b5a; --good: #6be08a;
-      --st: max(8px, env(safe-area-inset-top)); --sr: max(10px, env(safe-area-inset-right));
-      --sb: max(12px, env(safe-area-inset-bottom)); --sl: max(8px, env(safe-area-inset-left)); }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; touch-action: none; color: #fff;
+      --st: calc(max(8px, env(safe-area-inset-top)) + var(--vo-t, 0px)); --sr: max(10px, env(safe-area-inset-right));
+      --sb: calc(max(12px, env(safe-area-inset-bottom)) + var(--vo-b, 0px)); --sl: max(8px, env(safe-area-inset-left)); }
+    html, body { margin: 0; height: var(--app-h, 100%); width: 100%; position: fixed; inset: 0; overscroll-behavior: none; overflow: hidden; background: #000; touch-action: none; color: #fff;
       -webkit-user-select: none; user-select: none; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
       -webkit-tap-highlight-color: transparent; }
     canvas#c { display: block; width: 100%; height: 100%; }
@@ -51,23 +84,23 @@
     #cineUi { position: fixed; inset: 0; display: none; pointer-events: none; z-index: 6; }
     body.cine #cineUi { display: block; }
     body.cine #hud, body.cine #left, body.cine #buttons, body.cine #hint, body.cine #banner, body.cine #marks, body.cine #cross, body.cine #dot, body.cine #prompt, body.cine #toasts, body.cine #fps, body.cine #subtitle, body.cine #popups, body.cine #judgeBar { display: none !important; }
-    #cineUi .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; } #cineUi .top { top: 0; } #cineUi .bottom { bottom: 0; }
-    .cineCap { position: absolute; left: 50%; bottom: calc(9vh + 16px); transform: translateX(-50%); width: min(88vw, 640px); box-sizing: border-box; text-align: center; font-size: clamp(16px, 3.8vw, 24px); font-weight: 700; background: #050a18dd; border: 1px solid #fff3; border-radius: 14px; padding: 10px 16px; opacity: 0; }
+    #cineUi .bar { position: absolute; left: 0; right: 0; height: calc(var(--vh, 1vh) * 9); background: #000; } #cineUi .top { top: 0; } #cineUi .bottom { bottom: 0; }
+    .cineCap { position: absolute; left: 50%; bottom: calc(calc(var(--vh, 1vh) * 9) + 16px); transform: translateX(-50%); width: min(88vw, 640px); box-sizing: border-box; text-align: center; font-size: clamp(16px, 3.8vw, 24px); font-weight: 700; background: #050a18dd; border: 1px solid #fff3; border-radius: 14px; padding: 10px 16px; opacity: 0; }
     .cineCap.on { animation: cineIn .5s forwards; } @keyframes cineIn { to { opacity: 1; } }
-    .cineBadges { position: absolute; left: 12px; top: calc(9vh + 10px); display: flex; gap: 6px; flex-wrap: wrap; max-width: 60vw; pointer-events: auto; }
+    .cineBadges { position: absolute; left: 12px; top: calc(calc(var(--vh, 1vh) * 9) + 10px); display: flex; gap: 6px; flex-wrap: wrap; max-width: 60vw; pointer-events: auto; }
     .cineBadges .badge { text-decoration: none; font-size: 12px; padding: 4px 10px; }
-    .cineOver { position: absolute; right: 4vw; top: calc(9vh + 12px); text-align: right; text-shadow: 0 2px 10px #000; }
+    .cineOver { position: absolute; right: 4vw; top: calc(calc(var(--vh, 1vh) * 9) + 12px); text-align: right; text-shadow: 0 2px 10px #000; }
     .cineOver b { display: block; font-size: clamp(40px, 11vw, 84px); line-height: 1; color: #ffd24a; } .cineOver span { font-size: clamp(16px, 4vw, 26px); font-weight: 800; margin-left: 6px; } .cineOver small { display: block; font-size: 13px; color: #cfe3ff; }
     .cineOver .scale { display: flex; gap: 4px; justify-content: flex-end; margin: 6px 0; } .cineOver .scale i { font-style: normal; font-weight: 800; padding: 4px 14px; border-radius: 8px; background: #ffffff22; color: #ffffffaa; } .cineOver .scale i.hit { background: #ff5a3c; color: #fff; box-shadow: 0 0 14px #ff5a3c; }
     .cineSkip { position: absolute; right: 12px; bottom: 1.2vh; pointer-events: auto; background: #000a; border: 1px solid #fff6; border-radius: 999px; padding: 8px 18px; font-size: 14px; font-weight: 700; color: #fff; min-height: 36px; }
     #introUi { position: fixed; inset: 0; display: none; pointer-events: none; z-index: 5; }
     body.intro #introUi { display: block; } body.intro #hud, body.intro #left, body.intro #buttons, body.intro #hint, body.intro #banner, body.intro #marks, body.intro #cross, body.intro #dot, body.intro #prompt, body.intro #toasts, body.intro #fps { display: none !important; }
-    #introUi .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; } #introUi .top { top: 0; } #introUi .bottom { bottom: 0; }
+    #introUi .bar { position: absolute; left: 0; right: 0; height: calc(var(--vh, 1vh) * 9); background: #000; } #introUi .top { top: 0; } #introUi .bottom { bottom: 0; }
     #fade { position: absolute; inset: 0; background: #000; opacity: 1; }
     #introTitle { position: absolute; left: 0; right: 0; top: 38%; text-align: center; opacity: 0; transition: opacity 1.2s; } #introTitle.on { opacity: 1; }
     #introTitle b { display: block; font-size: min(14vw, 96px); letter-spacing: .25em; color: #fff; text-shadow: 0 0 30px #7fb0ff; } #introTitle span { font-size: min(4vw, 20px); color: #ffd24a; }
-    #introSkip { position: absolute; right: var(--sr); bottom: calc(9vh + 12px); pointer-events: auto; background: #000a; border: 1px solid #fff6; border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 700; }
-    body.intro #subtitle { bottom: calc(9vh + 60px); }
+    #introSkip { position: absolute; right: var(--sr); bottom: calc(calc(var(--vh, 1vh) * 9) + 12px); pointer-events: auto; background: #000a; border: 1px solid #fff6; border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 700; }
+    body.intro #subtitle { bottom: calc(calc(var(--vh, 1vh) * 9) + 60px); }
     .badge { display: inline-block; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; margin: 2px 4px 2px 0; border: 1px solid; background: none; color: #fff; vertical-align: middle; pointer-events: auto; }
     .badge.real { border-color: #5ab0ff; background: #14306bcc; } .badge.game { border-color: #ffb870; background: #4a2a10cc; } .badge.hist { border-color: #c9c9c9; background: #333c; }
     #dose { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.4; pointer-events: auto; } #dose .doseRow { font-weight: 800; color: #ff9a8a; } #dose small { display: block; opacity: .9; }
@@ -160,6 +193,19 @@
     #buttons { position: fixed; right: var(--sr); bottom: var(--sb); display: grid; grid-template-columns: 70px 70px; gap: 10px; direction: ltr; }
     #buttons button { width: 70px; height: 70px; border-radius: 50%; border: 2px solid #fff6; background: #101a2ecc; font-size: 11px; font-weight: 800; letter-spacing: .3px; touch-action: none; }
     #buttons button:active { background: #2a3a5ccc; }
+    /* Short screens (a phone held sideways with the browser bars showing): smaller buttons in two rows, tighter resource panel, so nothing covers anything else */
+    @media (max-height: 520px) {
+      #buttons { grid-template-columns: repeat(3, 50px); gap: 6px; }
+      #buttons button { width: 50px; height: 50px; font-size: 9.5px; border-width: 1.5px; }
+      #hud { padding: 5px 8px; width: min(38vw, 200px); font-size: 11px; line-height: 1.2; }
+      #hud .head { margin-bottom: 1px; font-size: 11px; } #hud .row { margin: 1px 0; } #hud .track { height: 6px; }
+      #hud .parts { margin-top: 2px; padding-top: 2px; }
+      #left { gap: 4px; width: min(34vw, 200px); }
+      #hint { display: none; }
+      #toasts { left: 40%; width: min(38vw, 320px); }
+      .card { padding: 12px 14px; }
+    }
+    @media (max-height: 380px) { #hud .note, #hud small { display: none; } #buttons { grid-template-columns: repeat(6, 44px); gap: 5px; } #buttons button { width: 44px; height: 44px; font-size: 9px; } }
     #actBtn { background: #c9861a !important; border-color: #fff !important; visibility: hidden; }
     #actBtn.on { visibility: visible; } #actBtn.held { transform: scale(.92); background: #ffb62e !important; }
     #jump { opacity: .85; }
@@ -175,9 +221,9 @@
     #hint { position: fixed; top: calc(var(--st) + 4px); left: 50%; transform: translateX(-50%); color: #fffc; font-size: 11px; pointer-events: none; background: #0008;
       padding: 4px 10px; border-radius: 999px; white-space: nowrap; max-width: 44vw; overflow: hidden; text-overflow: ellipsis; }
 
-    .scrim { position: fixed; inset: 0; background: #000a; display: none; align-items: center; justify-content: center; padding: 12px; box-sizing: border-box; }
+    .scrim { position: fixed; inset: 0; background: #000a; display: none; align-items: center; justify-content: center; padding: calc(12px + var(--vo-t, 0px)) 12px calc(12px + var(--vo-b, 0px)); box-sizing: border-box; }
     .scrim.on { display: flex; }
-    .card { width: min(94vw, 560px); max-height: 92vh; overflow-y: auto; background: #0e1626; border: 1px solid var(--line);
+    .card { width: min(94vw, 560px); max-height: calc(var(--app-h, 100vh) - 24px); overflow-y: auto; -webkit-overflow-scrolling: touch; background: #0e1626; border: 1px solid var(--line);
       border-radius: 16px; padding: 16px 18px; box-sizing: border-box; touch-action: pan-y; }
     .card h2 { margin: 0 0 8px; font-size: 19px; color: var(--accent); }
     .card p { margin: 6px 0; font-size: 13px; line-height: 1.45; }
@@ -209,6 +255,7 @@
   <div id="storm"></div>
   <div id="alert"></div>
   <div id="marks"></div>
+  <div id="vpProbe" style="position:fixed;left:0;bottom:0;width:1px;height:0;visibility:hidden;pointer-events:none"></div>
   <div id="popups"></div>
   <div id="subtitle"></div>
   <div id="judgeBar"><button id="judgeReset"></button></div>

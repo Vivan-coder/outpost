@@ -613,8 +613,12 @@ addEventListener('pointerdown', unlockAudio);
 byId('introSkip').addEventListener('click', () => endIntro());
 byId('introUi').addEventListener('pointerdown', () => { if (intro && intro.t > 1.5) endIntro(); });
 
+// The visible area: on phones the browser bars hide part of the window, so use the visual viewport when there is one.
+const vpW = (): number => Math.round(window.visualViewport?.width ?? innerWidth);
+const vpH = (): number => Math.round(window.visualViewport?.height ?? innerHeight);
 function resize(): void {
-  const w = innerWidth, h = innerHeight;
+  (window as unknown as { __fitViewport?: () => void }).__fitViewport?.();
+  const w = vpW(), h = vpH();
   renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL_CAP[quality]) * dynScale);
   renderer.setSize(w, h, false);
   composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h);
@@ -622,6 +626,8 @@ function resize(): void {
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
+addEventListener('orientationchange', () => { setTimeout(resize, 60); setTimeout(resize, 400); });
+window.visualViewport?.addEventListener('resize', resize);
 resize();
 
 document.title = t('title');
@@ -876,7 +882,7 @@ function updatePrompt(): void {
 const markVec = new THREE.Vector3();
 function updateMarks(): void {
   const items: { id: string; label: string; color: string; x: number; y: number; dist: number; edge: boolean; angle: number }[] = [];
-  const w = innerWidth, h = innerHeight;
+  const w = vpW(), h = vpH();
   const add = (id: string, label: string, color: string, x: number, y: number, z: number, minDist = 5) => {
     const dist = Math.hypot(x - player.pos.x, z - player.pos.z);
     if (dist < minDist || placing) return;
@@ -1140,3 +1146,15 @@ renderer.setAnimationLoop((now) => {
     acc = 0; frames = 0; worst = 0;
   }
 });
+
+// iPhone/iPad Safari keeps its bars on screen: suggest installing the game once, so it can run full screen
+{
+  const isIos = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = (navigator as { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches;
+  if (isIos && !standalone) {
+    setTimeout(() => {
+      try { if (localStorage.getItem('outpost.iosTip')) return; localStorage.setItem('outpost.iosTip', '1'); } catch { /* private window: show it anyway */ }
+      ui.toast(t('iosTip'), 'bot');
+    }, 12000);
+  }
+}

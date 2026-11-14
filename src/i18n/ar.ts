@@ -234,6 +234,7 @@ export const ar: Record<TextKey, string> = {
   cine_skip: 'تخطَّ',
   cine_replay: 'أعد المشاهدة: {title}',
   cine_replays: 'المشاهد',
+  iosTip: 'نصيحة: اضغط مشاركة ثم إضافة إلى الشاشة الرئيسية لتلعب بملء الشاشة بدون أشرطة المتصفح.',
   doorOpened: 'الباب مفتوح.',
   doorClosed: 'الباب مغلق.',
   pauseTitle: 'توقف مؤقت',

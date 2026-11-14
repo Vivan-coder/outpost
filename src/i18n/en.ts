@@ -211,6 +211,7 @@ export const en = {
   crewDo: 'What should {name} do?',
   btnBack: 'Back',
   doorOpened: 'Door open.',
+  iosTip: 'Tip: tap Share, then Add to Home Screen, to play full screen with no browser bars.',
   cine_title: 'A storm is forming',
   cine_flare: 'On {date}, the Sun burst out a {cls} flare!',
   cine_flareLabel: 'Flare size',
