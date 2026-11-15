@@ -16,6 +16,17 @@ Runs in a phone or laptop browser. No server, no logins, no network calls while 
 - **Phone friendly:** the layout fits the visible area under Safari's bars, short landscape screens get a compact layout, and two small switches (menu and tasks) hide and show the buttons. **VR mode** is built with WebXR (see below).
 - **English and Arabic** (right to left).
 
+## Screenshots (VR mode, captured in a VR emulator)
+
+![The live storm chart with its Real NASA data badge, shown as a panel in VR](docs/vr-proof/11-vr-storm-active.png)
+*A storm in VR: the real DONKI storm chart with its "Real NASA data" badge, and the wrist panel.*
+
+![Cleaning the solar panels with the controller ray in VR](docs/vr-proof/08-vr-cleaning-halfway.png)
+*Cleaning the solar panels in place, halfway through.*
+
+![The VR diagnostics panel (?vrdebug=1)](docs/vr-proof/hardening/vrdebug-diagnostics-panel.png)
+*The `?vrdebug=1` diagnostics panel a tester can read aloud.*
+
 ## Judges: quick demo
 
 Open the game with `?judge=1` (or press "Quick demo (3 min)" on the title screen) for a ready base about 20 seconds before the first storm warning. Use "Reset demo" to restart it.
