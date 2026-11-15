@@ -39,15 +39,17 @@ window.__pitch = (hand, pitch) => { const c = window.__xr.controllers[hand]; c.p
 })();
 `;
 
+const opened = [];
 async function game(name, { withXr = true, query = '?debug&judge=1&nodash', init = '' } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  opened.push(ctx);
   const page = await ctx.newPage();
   page.errors = [];
   page.on('console', (m) => { if (m.type() === 'error' && !IGNORE.test(m.text())) page.errors.push(m.text()); });
   page.on('pageerror', (e) => page.errors.push('pageerror: ' + e.message));
   if (withXr) await page.addInitScript(iwer + ';(() => { const d = new IWER.XRDevice(IWER.metaQuest3); d.installRuntime({ forceInstall: true }); window.__xr = d; })();' + HELPERS);
   if (init) await page.addInitScript(init);
-  await page.goto(BASE + query);
+  await page.goto(BASE + query, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForFunction(() => !!document.querySelector('#overlayCard .main') && !!window.outpost, null, { timeout: 40000 });
   await page.evaluate(() => document.querySelector('#overlayCard .main').click());
   page.shot = (n) => page.screenshot({ path: `${OUT}/${name}-${n}.png` });
@@ -79,7 +81,8 @@ const turnWith = async (page, hand) => {
   const y1 = await page.evaluate(() => window.outpost.rig.rotation.y);
   return Math.abs(y1 - y0);
 };
-const guard = async (name, fn) => { let page; try { page = await fn(); } catch (e) { note(`${name}: ran without crashing`, false, e.message.split('\n')[0]); } finally { /* contexts are closed at the end */ } return page; };
+const ONLY = process.env.ONLY;
+const guard = async (name, fn) => { if (ONLY && !name.includes(ONLY)) return; let page; try { page = await fn(); } catch (e) { note(`${name}: ran without crashing`, false, e.message.split('\n')[0]); } finally { while (opened.length) { try { await opened.pop().close(); } catch { /* already closed */ } } } return page; };
 
 // 1. session start, both eyes, no console errors, then a clean end
 await guard('session', async () => {
@@ -266,6 +269,98 @@ await guard('stress', async () => {
   console.log(`      frame stats under test (software renderer, not a headset): avg ${st.ms.toFixed(1)} ms, worst ${st.worst.toFixed(0)} ms, stalls over 50 ms: ${st.stalls}`);
   await leave(page);
   return page;
+});
+
+// 8b. the other hands-on tasks, completed with the controller ray and trigger: power panel repair and the greenhouse
+async function tapHot(page, id, down = 260) {
+  const ok = await page.evaluate((hid) => {
+    const w = window.outpost.work(); if (!w) return false;
+    const h = w.rig.hots.find((m) => m.userData.hot === hid && m.visible);
+    if (!h) return false;
+    window.__aim('right', h.getWorldPosition(new h.position.constructor()).toArray());
+    return true;
+  }, id);
+  if (!ok) return false;
+  await page.waitForTimeout(160);
+  await page.evaluate(() => window.__xr.controllers.right.updateButtonValue('trigger', 1));
+  await page.waitForTimeout(down);
+  await page.evaluate(() => window.__xr.controllers.right.updateButtonValue('trigger', 0));
+  await page.waitForTimeout(420);
+  return true;
+}
+async function startWorkWith(page, type, prep) {
+  await enter(page);
+  await page.evaluate(([ty, p]) => { const o = window.outpost, m = o.sim.modules.find((x) => x.type === ty); if (p === 'broken') m.broken = true; else o.sim.jobs.push({ id: o.sim.nextId++, task: ty, moduleId: m.id }); o.vr().debugSetHead(m.x + 0.5, m.z + 3.2); o.rig.rotation.y = 0; }, [type, prep]);
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => window.__pitch('right', 0));
+  await page.evaluate(() => window.__xr.controllers.right.updateButtonValue('trigger', 1));
+  await page.waitForFunction(() => !!window.outpost.work(), null, { timeout: 60000 });
+  await page.evaluate(() => window.__xr.controllers.right.updateButtonValue('trigger', 0));
+  await page.waitForTimeout(900);
+}
+async function solve(page) {
+  const log = [];
+  for (let guardN = 0; guardN < 60; guardN++) {
+    const s = await page.evaluate(() => { const w = window.outpost.work(); if (!w) return null; const st = w.steps[Math.min(w.idx, w.steps.length - 1)]; return { idx: w.idx, kind: st.kind, target: st.target, n: st.n, done: w.done }; });
+    if (!s || s.done) break;
+    log.push(s.kind + ':' + (s.target ?? ''));
+    const adv = async (fn) => { for (let k = 0; k < 6; k++) { await fn(k); const now = await page.evaluate(() => { const w = window.outpost.work(); return w ? (w.done ? 999 : w.idx) : 999; }); if (now !== s.idx) return; } };
+    if (s.kind === 'pickTool') { await page.waitForTimeout(500); continue; }
+    if (s.kind === 'hold') { await page.evaluate(() => { const w = window.outpost.work(); const h = w.rig.hots.find((m) => m.userData.hot === 'pump'); window.__aim('right', h.getWorldPosition(new h.position.constructor()).toArray()); }); await page.waitForTimeout(200); await page.evaluate(() => window.__xr.controllers.right.updateButtonValue('trigger', 1)); await page.waitForTimeout(2200); await page.evaluate(() => window.__xr.controllers.right.updateButtonValue('trigger', 0)); await page.waitForTimeout(500); continue; }
+    if (s.kind === 'unscrew' || s.kind === 'fasten') { await adv(async () => { for (let i = 0; i < 4; i++) await tapHot(page, 'screw' + i); }); continue; }
+    if (s.kind === 'inspect') { await adv(async () => { for (let i = 0; i < 4; i++) await tapHot(page, 'mod' + i); }); continue; }
+    if (s.kind === 'removePart' && s.target === 'burnt') { await adv(async () => { const f = await page.evaluate(() => [...window.outpost.work().rig.faults]); for (const i of f) await tapHot(page, 'mod' + i); }); continue; }
+    if (s.kind === 'insertPart' && s.target === 'slot') { await adv(async () => { const f = await page.evaluate(() => [...window.outpost.work().rig.faults]); for (const i of f) await tapHot(page, 'slot' + i); }); continue; }
+    if (s.kind === 'connectCable') { await adv(async () => { for (let k = 0; k < 3; k++) { await tapHot(page, 'plug' + k); await tapHot(page, 'port' + [2, 0, 1][k]); } }); continue; }
+    if (s.kind === 'close') { await adv(async () => { (await tapHot(page, 'coverOff')) || (await tapHot(page, 'cover')); }); continue; }
+    await adv(async () => { const reps = s.n ?? 1; for (let i = 0; i < reps; i++) await tapHot(page, s.target); });
+  }
+  return log;
+}
+await guard('repair', async () => {
+  const page = await game('repair');
+  await startWorkWith(page, 'solar', 'broken');
+  const kind = await page.evaluate(() => window.outpost.work().kind);
+  await page.shot('repair-open');
+  const before = await page.evaluate(() => window.outpost.sim.stats.fixes);
+  const log = await solve(page);
+  await page.waitForFunction(() => !window.outpost.work(), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  const after = await page.evaluate(() => ({ fixes: window.outpost.sim.stats.fixes, broken: window.outpost.sim.modules.find((x) => x.type === 'solar').broken }));
+  await page.shot('repair-done');
+  note('Power panel repair is completed in VR with the controller ray and trigger', kind === 'repair' && after.fixes === before + 1 && !after.broken, JSON.stringify({ kind, steps: log.length, before, after }));
+  await leave(page);
+  return page;
+});
+await guard('greenhouse', async () => {
+  const page = await game('greenhouse');
+  await startWorkWith(page, 'greenhouse', 'job');
+  const kind = await page.evaluate(() => window.outpost.work().kind);
+  await page.shot('greenhouse-open');
+  const before = await page.evaluate(() => window.outpost.sim.stats.jobs);
+  const log = await solve(page);
+  await page.waitForFunction(() => !window.outpost.work(), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  const after = await page.evaluate(() => window.outpost.sim.stats.jobs);
+  await page.shot('greenhouse-done');
+  note('Greenhouse task is completed in VR with the controller ray and trigger', kind === 'greenhouse' && after === before + 1, JSON.stringify({ kind, steps: log.length, before, after }));
+  await leave(page);
+  return page;
+});
+await guard('vrdebug', async () => {
+  const page = await game('vrdebug', { query: '?debug&judge=1&nodash&vrdebug=1' });
+  await enter(page);
+  await page.waitForTimeout(1500);
+  note('Diagnostics panel (?vrdebug=1) is shown in the headset', await page.evaluate(() => window.outpost.vr().diagVisible));
+  await page.shot('diagnostics-panel');
+  await leave(page);
+  await page.ctx.close(); // one browser page at a time: the software renderer is slow
+  const off = await game('vrdebug-off');
+  await enter(off);
+  await off.waitForTimeout(1000);
+  note('Diagnostics panel is off by default', !(await off.evaluate(() => window.outpost.vr().diagVisible)));
+  await leave(off);
+  return off;
 });
 
 // 9. a storm, the shelter and the evening report in VR

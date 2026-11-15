@@ -191,6 +191,7 @@ export class Vr {
   private hx = 0; private hy = 0; private hz = 0; private hyaw = 0;
 
   get menuVisible(): boolean { return this.panel.mesh.visible; }
+  get diagVisible(): boolean { return this.diag.mesh.visible; }
   get aimingNow(): boolean { return this.aiming && this.arc.visible; }
   // Test helpers: where the menu panel is, listener counts, and a way to move the head for the emulator test
   panelWorld(): { c: number[]; up: number[] } { const c = this.panel.mesh.getWorldPosition(new THREE.Vector3()); const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.panel.mesh.getWorldQuaternion(new THREE.Quaternion())); return { c: [c.x, c.y, c.z], up: [up.x, up.y, up.z] }; }
@@ -497,8 +498,8 @@ export class Vr {
     const w = this.h.work();
     if (w) { if (down) w.pointerDownRay(ray); else w.pointerUp(); if (!down) this.h.press(false); return; }
     if (down) {
-      // Hands have no thumbstick: a pinch on empty floor teleports, a pinch on something usable uses it
-      if (rec.isHand && !this.h.interact()) rec.pendingTp = true; else this.h.press(true);
+      // Hands have no thumbstick: point at the floor and pinch to teleport; pinch while pointing ahead to use what is in front of you
+      if (rec.isHand && (ray.direction.y < -0.2 || !this.h.interact())) rec.pendingTp = true; else this.h.press(true);
     } else if (rec.pendingTp) { rec.pendingTp = false; this.pinchTeleport(rec); } else this.h.press(false);
   }
 
@@ -779,10 +780,10 @@ export class Vr {
     g.strokeStyle = '#55ff88'; g.lineWidth = 4; g.stroke();
     g.direction = 'ltr'; g.textAlign = 'left'; g.textBaseline = 'top';
     g.fillStyle = '#55ff88'; g.font = 'bold 34px monospace'; g.fillText('VR diagnostics', 28, 18);
-    g.fillStyle = '#e6f1ff'; g.font = '27px monospace';
+    g.fillStyle = '#e6f1ff'; g.font = '33px monospace';
     const text = this.report().split('\n');
     let y = 66;
-    for (let i = 0; i < text.length && y < hh - 100; i++) { g.fillText(text[i], 28, y, w - 56); y += 31; }
+    for (let i = 0; i < text.length && y < hh - 100; i++) { g.fillText(text[i], 28, y, w - 56); y += 40; }
     g.fillStyle = '#24344f'; g.beginPath(); g.roundRect(28, hh - 84, 300, 56, 14); g.fill();
     g.fillStyle = '#fff'; g.font = 'bold 28px system-ui, sans-serif'; g.fillText(this.h.labels.copy, 50, hh - 70);
     g.fillStyle = '#ffd24a'; g.font = '24px system-ui, sans-serif'; g.fillText(this.copyNote, 350, hh - 70, w - 380);

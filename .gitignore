@@ -6,3 +6,15 @@ docs/trailer/out/
 tools/trailer/music-override.*
 tools/trailer/node_modules/
 docs/phone-test-*.png
+
+# test run logs
+docs/vr-*.log
+
+# never commit video or audio (trailer, demo recordings, music)
+*.mp4
+*.webm
+*.mov
+*.mp3
+*.wav
+*.m4a
+*.flac

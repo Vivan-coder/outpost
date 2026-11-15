@@ -10,7 +10,8 @@
     "validate-layout": "node scripts/validate-layout.ts",
     "test:vr": "node tests/vr.test.mjs",
     "vr:static": "node scripts/vr-static-check.mjs",
-    "test:vr:hardening": "node tests/vr-hardening.test.mjs"
+    "test:vr:hardening": "node tests/vr-hardening.test.mjs",
+    "validate-vr": "node scripts/vr-static-check.mjs"
   },
   "dependencies": {
     "three": "^0.187.0"
