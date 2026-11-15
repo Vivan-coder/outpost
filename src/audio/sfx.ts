@@ -14,6 +14,12 @@ export function unlockAudio(): void {
   if (ctx.state === 'suspended') void ctx.resume();
 }
 
+// Pause and resume all sound (the headset was taken off, or the browser hid the session)
+export function setAudioActive(on: boolean): void {
+  if (!ctx) return;
+  if (on) { if (ctx.state === 'suspended') void ctx.resume(); } else if (ctx.state === 'running') void ctx.suspend();
+}
+
 function tone(freq: number, dur: number, type: OscillatorType = 'sine', vol = 0.5, slideTo = freq, delay = 0): void {
   if (!ctx || !master) return;
   const t0 = ctx.currentTime + delay;

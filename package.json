@@ -8,7 +8,9 @@
     "build": "npm run validate-layout && tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "validate-layout": "node scripts/validate-layout.ts",
-    "test:vr": "node tests/vr.test.mjs"
+    "test:vr": "node tests/vr.test.mjs",
+    "vr:static": "node scripts/vr-static-check.mjs",
+    "test:vr:hardening": "node tests/vr-hardening.test.mjs"
   },
   "dependencies": {
     "three": "^0.187.0"

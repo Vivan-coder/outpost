@@ -28,7 +28,7 @@ import { DECISIONS, planDecisions, seeded } from './data/decisions';
 import { warnLines, stormLines, type Line } from './data/talk';
 import { makeQuiz } from './data/quiz';
 import { stars as starsOf } from './sim/sim.ts';
-import { sfx, unlockAudio } from './audio/sfx';
+import { sfx, unlockAudio, setAudioActive } from './audio/sfx';
 import { t, setLanguage, type TextKey } from './i18n/en';
 import { ar } from './i18n/ar';
 
@@ -101,7 +101,7 @@ const input = createInput(canvas);
 const player = new Player(camera, blockers);
 const runner = new TaskRunner();
 const keys = new Set<string>();
-if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, renderer, rig, vr: () => vr, startVr: () => startVr(), testWork: () => selfTestWork(), intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, renderer, rig, vr: () => vr, startVr: () => onVrClick(), testWork: () => selfTestWork(), intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
 
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }
@@ -245,7 +245,10 @@ const ui = createUi(level, {
 
 // ---- VR (WebXR): loaded only when the player presses Enter VR, so it never touches the normal game ----
 let vr: import('./vr/vr').Vr | null = null;
+let vrMod: typeof import('./vr/vr') | null = null;
 let vrPaused = false;
+let vrSeqT = 0;
+let vrPerf = 0; // 0 = full quality ... 3 = lightest (set by the VR frame-time controller)
 const xrOn = () => renderer.xr.isPresenting;
 const vrHelpers = {
   hud() {
@@ -267,64 +270,113 @@ const vrHelpers = {
       job: (byId('jobs').innerText.split('\n')[1] || ''),
     };
   },
+  // The live storm chart for the world-space panel (the DOM chart cannot be seen in VR)
+  chart() {
+    if (!sim.storm || byId('stormPanel').style.display === 'none') return null;
+    return { canvas: byId('spChart') as HTMLCanvasElement, title: byId('spTitle').textContent ?? '', badges: (byId('spBadge').textContent ?? '').trim(), note: byId('spNote').textContent ?? '' };
+  },
 };
+// Framebuffer scale cannot change during a VR session, so it is chosen at the start: lighter if the last session struggled. ?vrscale=0.8 overrides it.
+const vrScale = (): number => {
+  const q = Number(params.get('vrscale'));
+  if (q >= 0.5 && q <= 1.5) return q;
+  try { const lvl = Number(localStorage.getItem('outpost.vr.perf') ?? 0); return lvl >= 2 ? 0.75 : lvl === 1 ? 0.85 : 0.9; } catch { return 0.9; }
+};
+
+// The Enter VR button appears only when the browser reports immersive VR support, and is re-checked when a headset is plugged in or removed.
+let vrBtnEl: HTMLButtonElement | null = null;
+async function refreshVrButton(): Promise<void> {
+  const ok = vrMod ? await vrMod.Vr.supported() : false;
+  if (ok && !vrBtnEl) {
+    vrBtnEl = document.createElement('button');
+    vrBtnEl.id = 'vrBtn'; vrBtnEl.textContent = t('btnVr');
+    vrBtnEl.addEventListener('click', onVrClick);
+    document.body.appendChild(vrBtnEl);
+  } else if (!ok && vrBtnEl) { vrBtnEl.remove(); vrBtnEl = null; }
+}
 function setupVrButton(): void {
-  void import('./vr/vr').then(async (m) => {
-    if (!(await m.Vr.supported())) return;
-    const b = document.createElement('button');
-    b.id = 'vrBtn'; b.textContent = t('btnVr');
-    b.addEventListener('click', () => { void startVr(); });
-    document.body.appendChild(b);
+  if (!navigator.xr) return; // iPhone Safari and other browsers without WebXR never load any VR code
+  void import('./vr/vr').then((m) => {
+    vrMod = m;
+    void refreshVrButton();
+    try { navigator.xr?.addEventListener('devicechange', () => { void refreshVrButton(); }); } catch { /* old browser: no devicechange */ }
   });
 }
-async function startVr(): Promise<void> {
-  if (intro) endIntro(); // the cinematic moves the camera, which is never done to a VR player
-  const m = await import('./vr/vr');
-  if (!vr) {
-    vr = new m.Vr({
-      renderer, scene, camera, rig,
-      heightAt: (x, z) => heightAt(x, z),
-      blockers: () => blockers,
-      setPlayer: (x, z, yaw) => { player.pos.x = x; player.pos.z = z; player.pos.y = heightAt(x, z); player.yaw = yaw; },
-      press: (on) => { if (on) { keys.add('KeyE'); actTap(); } else keys.delete('KeyE'); },
-      work: () => work,
-      hud: () => vrHelpers.hud(),
-      labels: { resume: t('btnResume'), crew: t('btnCrew'), shelter: t('vrShelter'), fastForward: t('vrFF'), data: t('btnLab'), log: t('btnLog'), exit: t('vrExit'), back: t('btnBack'), ok: t('btnGotIt'), rest: t('choreRest'), menu: t('pauseTitle'), hold: t('vrHold') },
-      crew: () => sim.crew.map((c, i) => ({ name: c.name, doing: c.chore ? t(`task_${c.chore}` as TextKey) : t(`act_${activities()[i]}` as TextKey), options: crewOptions(sim, level).slice(0, 5).map((o) => ({ id: o.id, label: t(`task_${o.id}` as TextKey) })) })),
-      assign: (i, id) => { assign(sim, level, i, id as TaskId | null); if (id) ui.toast(t('assigned', { name: sim.crew[i].name, chore: t(`task_${id}` as TextKey) }), 'good'); },
-      callShelter: () => { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
-      toggleFF: () => toggleFF(),
-      dataLines: () => [t('labIntro'), t('lab_donki'), t('lab_radlab'), t('lab_osdr'), t('lab_alsj')],
-      logLines: () => ui.collectedIds().length ? ui.collectedIds().map((id) => `${cardInfo(id).title}: ${cardInfo(id).line}`) : [t('logLocked')],
-      setPaused: (on) => { vrPaused = on; },
-      rtl: () => document.documentElement.dir === 'rtl',
-      onStart: () => {
-        document.body.classList.add('xr');
-        ui.setVrHook({
-          note: (k) => vr?.toast(t(k)),
-          crew: (only) => vr?.crewMenu(only),
-          menu: () => vr?.mainMenu(),
-          card: (title, lines, button, onClose) => vr?.card(title, lines, button, onClose),
-          toast: (text) => vr?.toast(text),
-          subtitle: (name, text, sec) => vr?.subtitle(name, text, sec),
-        });
-        for (const id of ['menu', 'overlay']) byId(id).classList.remove('on');
-        unlockAudio();
-        vr?.toast(t('vrHelp'));
-      },
-      onEnd: () => {
-        document.body.classList.remove('xr');
-        ui.setVrHook(null);
-        if (work) leaveWork();
-        camera.position.set(player.pos.x, player.pos.y + 1.7, player.pos.z);
-        player.update(0, input.state);
-        resize();
-      },
-    });
-  }
-  rig.position.set(player.pos.x, heightAt(player.pos.x, player.pos.z), player.pos.z);
-  rig.rotation.y = player.yaw;
-  await vr.enter();
+// Straight from the click: start audio and ask for the session while the browser still counts it as a user gesture
+function onVrClick(): void {
+  unlockAudio();
+  if (!vrMod) return;
+  let p: Promise<XRSession>;
+  try { p = vrMod.Vr.request(); } catch (e) { vrFail(e); return; }
+  void startVr(p);
+}
+function vrFail(e: unknown): void {
+  const name = (e as Error | undefined)?.name ?? '';
+  const why = name === 'NotSupportedError' ? t('vrWhyNotSupported') : name === 'SecurityError' ? t('vrWhySecurity') : ((e as Error | undefined)?.message ?? t('vrWhyOther')).slice(0, 80);
+  vrMod?.Vr.logError(`VR start failed: ${name} ${(e as Error | undefined)?.message ?? ''}`);
+  ui.toast(t('vrFailed', { why }), 'bad'); // the game simply carries on in the normal view
+}
+async function startVr(sessionP: Promise<XRSession>): Promise<void> {
+  let session: XRSession;
+  try { session = await sessionP; } catch (e) { vrFail(e); return; }
+  try {
+    if (intro) endIntro(); // the cinematic moves the camera, which is never done to a VR player
+    const m = vrMod ?? await import('./vr/vr');
+    if (!vr) {
+      vr = new m.Vr({
+        renderer, scene, camera, rig,
+        heightAt: (x, z) => heightAt(x, z),
+        blockers: () => blockers,
+        setPlayer: (x, z, yaw) => { player.pos.x = x; player.pos.z = z; player.pos.y = heightAt(x, z); player.yaw = yaw; },
+        press: (on) => { if (on) { keys.add('KeyE'); actTap(); } else keys.delete('KeyE'); },
+        interact: () => !!target,
+        hold: () => (runner.stage === 'hold' ? runner.hold : 0),
+        work: () => work,
+        hud: () => vrHelpers.hud(),
+        chart: () => vrHelpers.chart(),
+        labels: { resume: t('btnResume'), crew: t('btnCrew'), shelter: t('vrShelter'), fastForward: t('vrFF'), data: t('btnLab'), log: t('btnLog'), exit: t('vrExit'), back: t('btnBack'), ok: t('btnGotIt'), rest: t('choreRest'), menu: t('pauseTitle'), hold: t('vrHold'), stepBack: t('vrStepBack'), diag: t('vrDiag'), copy: t('vrCopy') },
+        crew: () => sim.crew.map((c, i) => ({ name: c.name, doing: c.chore ? t(`task_${c.chore}` as TextKey) : t(`act_${activities()[i]}` as TextKey), options: crewOptions(sim, level).slice(0, 5).map((o) => ({ id: o.id, label: t(`task_${o.id}` as TextKey) })) })),
+        assign: (i, id) => { assign(sim, level, i, id as TaskId | null); if (id) ui.toast(t('assigned', { name: sim.crew[i].name, chore: t(`task_${id}` as TextKey) }), 'good'); },
+        callShelter: () => { if (!sim.shelterCall) { setShelter(sim, true); sfx.alarm(); } },
+        toggleFF: () => toggleFF(),
+        dataLines: () => [t('labIntro'), t('lab_donki'), t('lab_radlab'), t('lab_osdr'), t('lab_alsj')],
+        logLines: () => ui.collectedIds().length ? ui.collectedIds().map((id) => `${cardInfo(id).title}: ${cardInfo(id).line}`) : [t('logLocked')],
+        setPaused: (on) => { vrPaused = on; },
+        setAudio: (on) => setAudioActive(on),
+        setPerf: (lvl) => { vrPerf = lvl; sun.castShadow = quality !== 'low' && lvl < 2; },
+        remember: (lvl) => { try { localStorage.setItem('outpost.vr.perf', String(lvl)); } catch { /* private window */ } },
+        rtl: () => document.documentElement.dir === 'rtl',
+        get scale() { return vrScale(); },
+        get debug() { return params.has('vrdebug'); },
+        onStart: () => {
+          document.body.classList.add('xr');
+          ui.setVrHook({
+            note: (k) => vr?.toast(t(k)),
+            crew: (only) => vr?.crewMenu(only),
+            menu: () => vr?.mainMenu(),
+            card: (title, lines, button, onClose) => vr?.card(title, lines, button, onClose),
+            toast: (text) => vr?.toast(text),
+            subtitle: (name, text, sec) => vr?.subtitle(name, text, sec),
+          });
+          for (const id of ['menu', 'overlay']) byId(id).classList.remove('on');
+          unlockAudio();
+          vr?.toast(t('vrHelp'));
+        },
+        onEnd: () => {
+          document.body.classList.remove('xr');
+          ui.setVrHook(null);
+          if (work) leaveWork();
+          sun.castShadow = quality !== 'low'; vrPerf = 0;
+          camera.position.set(player.pos.x, player.pos.y + 1.7, player.pos.z);
+          player.update(0, input.state);
+          resize();
+        },
+      });
+    }
+    rig.position.set(player.pos.x, heightAt(player.pos.x, player.pos.z), player.pos.z);
+    rig.rotation.y = player.yaw;
+    await vr.enter(session);
+  } catch (e) { vrFail(e); }
 }
 
 // ---- Work mode: close-up hands-on tasks ----
@@ -617,6 +669,7 @@ byId('introUi').addEventListener('pointerdown', () => { if (intro && intro.t > 1
 const vpW = (): number => Math.round(window.visualViewport?.width ?? innerWidth);
 const vpH = (): number => Math.round(window.visualViewport?.height ?? innerHeight);
 function resize(): void {
+  if (renderer.xr.isPresenting) return; // the headset sets the size; changing it mid-session is not allowed
   (window as unknown as { __fitViewport?: () => void }).__fitViewport?.();
   const w = vpW(), h = vpH();
   renderer.setPixelRatio(Math.min(devicePixelRatio, PIXEL_CAP[quality]) * dynScale);
@@ -787,7 +840,7 @@ function handleEvents(): void {
       }
       case 'choreDone': collectResearch(e.task); sfx.part(); ui.toast(t('choreDone', { name: sim.crew[e.crew].name, chore: t(`task_${e.task}` as TextKey) }), 'good'); break;
       case 'upgrade': break; // the console handles its own feedback
-      case 'dayStart': dayFlow(false); break;
+      case 'dayStart': if (xrOn()) vrDayReport(); else dayFlow(false); break;
       case 'dustStart': ui.toast(t('mars_dust_t'), 'bad'); break;
       case 'dustEnd': break;
       case 'autoRepair': { const m = sim.modules.find((mod) => mod.id === e.id); sfx.fix(); if (m) ui.toast(t('autoRepaired', { name: modName(m.type) }), 'good'); break; }
@@ -1001,6 +1054,26 @@ function playStormCutscene(idx: number, full: boolean, after?: () => void): void
 window.addEventListener('outpost:cine', () => { cineQueue.push(() => playStormCutscene(sim.storm?.index ?? Math.min(sim.stormIndex, level.storms.length - 1), true)); });
 if (params.has('debug')) Object.assign((window as unknown as { outpost: object }).outpost, { cine: (full = true) => playStormCutscene(0, full), cinePlayer: () => cine, cineState: () => ({ playing: !!cine, queued: cineQueue.length, today: cineToday }) });
 
+// The evening report for VR: the same numbers and notes as the desktop screen, as a world-space panel
+function vrDayReport(): void {
+  const r = sim.lastDay;
+  if (!r || !vr) return;
+  const cp = caps(sim, level);
+  const pc = (v: number, m: number) => Math.round(Math.max(0, Math.min(100, (v / m) * 100)));
+  const a = [pc(r.start.power, cp.power), pc(r.start.air, cp.air), 100 - Math.round(r.start.radiation)];
+  const b = [pc(r.end.power, cp.power), pc(r.end.air, cp.air), 100 - Math.round(r.end.radiation)];
+  const d = (x: number) => (x > 0 ? '+' : '') + Math.round(x);
+  const lines = [
+    `${t('power')}: ${a[0]} → ${b[0]}`, `${t('air')}: ${a[1]} → ${b[1]}`, `${t('protect')}: ${a[2]} → ${b[2]}`,
+    t('sum_air', { d: d(b[1] - a[1]), p: r.budget.life }),
+    r.storm ? t('sum_storm', { p: r.budget.shield, d: d(b[2] - a[2]) }) : '',
+    t('sum_pow', { d: d(b[0] - a[0]) }), t('sum_sci', { p: r.budget.science, n: Math.round(r.budget.science / 10) }), t('sum_trade'),
+  ].filter(Boolean);
+  const note = DAY_NOTES[(r.day - 1 + 12) % 12];
+  lines.push(`${t('sum_real')} ${t(`fact_${note}` as TextKey)} (${t('badgeReal')})`);
+  vr.card(t('sumTitle', { n: r.day }), lines, t('mcNext'));
+}
+
 function dayFlow(first: boolean): void {
   if (new URLSearchParams(location.search).has('nodash') || xrOn()) return;
   if (isMars && !first) return; // the preview is short: one power plan, then radio decisions
@@ -1054,7 +1127,7 @@ renderer.setAnimationLoop((now) => {
   last = now;
   const dt = Math.min(rawDt, 0.05);
   const paused = ui.blocking() || sim.status !== 'running' || !!intro || !!cine || vrPaused;
-  if (xrOn()) vr?.update(dt);
+  if (xrOn()) { try { vr?.update(dt); } catch (e) { vrMod?.Vr.logError(`vr.update: ${String(e)}`); } }
   if (cine) cine.update(dt);
   else if (cineQueue.length && !ui.blocking() && !work && runner.stage === 'idle' && sim.status === 'running') cineQueue.shift()!();
   if (intro) { intro.update(dt); if (intro.done) endIntro(); }
@@ -1106,7 +1179,12 @@ renderer.setAnimationLoop((now) => {
     const holding = keys.has('KeyE') || ui.actHeld();
     const tg = runner.target;
     runner.speed = 1 / taskSpeed(sim, level);
-    const result = runner.update(dt, holding, lookDX, target?.type === 'task' ? target.task : null, px, pz);
+    let lookForTask = lookDX;
+    if (xrOn() && runner.stage === 'mini') {
+      if (runner.mini === 'wipe') lookForTask = holding ? Math.sin(clock * 9) * 0.12 : 0;
+      else if (runner.mini === 'sequence' && holding) { vrSeqT -= dt; if (vrSeqT <= 0) { vrSeqT = 0.5; seqPress(runner.order[runner.index]); } }
+    }
+    const result = runner.update(dt, holding, lookForTask, target?.type === 'task' ? target.task : null, px, pz);
     if (result && tg) finishTask(tg, result);
     if (runner.stage === 'hold' && holding) { holdTick -= dt; if (holdTick <= 0) { holdTick = 0.22; sfx.click(); } }
     ui.setRing(runner.stage === 'hold' ? runner.hold : 0);
@@ -1141,7 +1219,7 @@ renderer.setAnimationLoop((now) => {
   sun.position.set(player.pos.x + 60, player.pos.y + 45, player.pos.z + 30);
 
   shadowTick++;
-  if (quality === 'high' || shadowTick % 2 === 0 || xrOn()) renderer.shadowMap.needsUpdate = true;
+  if (xrOn()) { if (shadowTick % (vrPerf >= 1 ? 6 : 3) === 0) renderer.shadowMap.needsUpdate = true; } else if (quality === 'high' || shadowTick % 2 === 0) renderer.shadowMap.needsUpdate = true;
   if (xrOn()) renderer.render(scene, camera); // no post-processing in VR
   else if (quality === 'low') renderer.render(cine ? cine.scene : work ? workScene : scene, camera);
   else { renderPass.scene = cine ? cine.scene : work ? workScene : scene; composer.render(); }
@@ -1150,7 +1228,7 @@ renderer.setAnimationLoop((now) => {
   if (acc >= 0.5) {
     const info = renderer.info.render;
     fpsEl.textContent = `${Math.round(frames / acc)} fps  worst ${(worst * 1000).toFixed(0)} ms\n${info.calls} calls  ${(info.triangles / 1000).toFixed(0)}k tris  dpr ${renderer.getPixelRatio().toFixed(1)}`;
-    if (!params.has('debug') && !paused && rawDt < 0.25 && !document.hidden) {
+    if (!params.has('debug') && !paused && rawDt < 0.25 && !document.hidden && !xrOn()) {
       const f = frames / acc;
       dipRun = f < 52 ? dipRun + 1 : 0;
       steadyRun = f >= 58 ? steadyRun + 1 : 0;
