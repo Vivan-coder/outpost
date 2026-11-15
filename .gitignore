@@ -20,3 +20,6 @@ docs/vr-*.log
 *.flac
 docs/*.log
 docs/prod-check/
+
+# the two trailer folders (submission upload / private pitch copy): never committed
+trailer-pack/
