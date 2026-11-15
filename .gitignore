@@ -6,3 +6,14 @@ docs/trailer/out/
 
 # drop-in music for the trailer (kept out of git)
 tools/trailer/music-override.*
+
+# never commit video or audio, test logs or phone test shots
+*.mp4
+*.webm
+*.mov
+*.mp3
+*.wav
+*.m4a
+*.flac
+docs/vr-*.log
+docs/phone-test-*.png
