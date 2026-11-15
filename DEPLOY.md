@@ -1,6 +1,6 @@
 # Deploying Outpost
 
-**Current live site:** https://novessa-outpost.pages.dev, built by **Cloudflare Pages** from the `main` branch of `Vivan-coder/outpost` (framework preset None, build command `npm run build`, output directory `dist`, environment variable `NODE_VERSION` = `22`). Every push to `main` redeploys. An older Netlify site (`novessa-outpost.netlify.app`) is no longer updated: Netlify skipped new deploys when the account ran out of credits.
+**Current live site:** https://novessa-outpost.pages.dev, built by **Cloudflare Pages** from the `main` branch of `Vivan-coder/outpost` (framework preset None, build command `npm run build`, output directory `dist`, environment variable `NODE_VERSION` = `22`). Every push to `main` redeploys. Netlify was used first but is no longer updated: its deploys were skipped when the account ran out of credits.
 
 Static site. Build command `npm run build`, publish directory `dist`. No server, no environment variables.
 
@@ -11,7 +11,7 @@ Static site. Build command `npm run build`, publish directory `dist`. No server,
 3. Authorise Netlify if asked, and give it access to the `outpost` repository.
 4. Pick the `outpost` repo. Branch: `main`.
 5. Build settings are read from `netlify.toml` (build command `npm run build`, publish directory `dist`). Leave them as they are.
-6. Click **Deploy**. After about a minute you get a link like `https://something.netlify.app`.
+6. Click **Deploy**. After about a minute you get a link under the `netlify.app` domain.
 7. Optional: **Site configuration** > **Change site name** to get a nicer URL.
 
 ## Alternative: Cloudflare Pages

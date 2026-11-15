@@ -23,7 +23,7 @@ Status: design target for the Riffa submission (Sun Nov 15, 12:45 Bahrain time).
 2. **Real NASA data, clearly labelled.** DONKI (space weather), RadLab (ISS dose), OSDR (astronaut health studies). Facts only from NASA pages, stored with source URLs in `src/data/`.
 3. **Easy for 7-12.** Three core resources, food secondary.
 4. **A real, polished game.** Instant response, feedback on every action, no dead time.
-5. **Runs anywhere.** Browser only, no install or login, offline after first load.
+5. **Runs anywhere.** Browser only, no install or login (can be added to the home screen; no offline mode yet).
 
 ## 3. The day loop (about 2-3 minutes per day)
 
@@ -106,7 +106,7 @@ Every real number carries a badge ("Real NASA data" / "Archived") and a link. Ev
 | Work-bench tools | 1-8, E to use, Esc to leave | Tap tool, tap/drag on target |
 | Jump | Space | Jump button |
 
-VR (WebXR) exists as an extra: teleport, snap turn, wrist panel. It is not part of the judged path.
+VR (WebXR) exists as an extra: teleport, snap turn, wrist panel, storm chart panel, the main hands-on jobs. It is hardened and tested in a VR emulator (IWER / Meta Immersive Web Emulator); not yet tested on a physical headset. It is not part of the judged path.
 
 ## 6. UI layout
 **Always on screen (3D view):**
@@ -175,7 +175,7 @@ Nothing new gets added unless it is in this document. If it must change, update 
 - [ ] Judge mode works start to finish and resets cleanly.
 - [ ] Day 1 cannot be lost.
 - [ ] The Moon mission can be won and lost, and the fail screen explains why in plain words.
-- [ ] Works offline after the first load; Arabic/RTL has no broken screens.
+- [ ] Arabic/RTL has no broken screens (offline mode is not built; do not claim it).
 - [ ] README explains the datasets (what is real, what is game design, with links).
 - [ ] `docs/ASSETS.md` and `docs/CREDITS.md` are complete, including AI disclosure.
 - [ ] Type-check, build, and automated playtest all pass; deployed on Cloudflare Pages (https://novessa-outpost.pages.dev); link tested on a second device.
