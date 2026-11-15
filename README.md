@@ -167,3 +167,7 @@ Full credits, including tools and AI use, are in `docs/CREDITS.md`.
 ## Deploying
 
 The live site is built by Cloudflare Pages from the `main` branch (build `npm run build`, output `dist`, `NODE_VERSION=22`). Every push to `main` redeploys. Details and alternatives are in `DEPLOY.md`. The 30-second trailer tooling lives on the `trailer` branch (`docs/trailer/README.md` there); trailer videos are never part of the deployed site.
+
+## Licence
+
+MIT, copyright 2026 Vivan, Team Novessa (see `LICENSE`). Third-party notices (three.js, Poly Haven, NASA data, tools) are in `docs/THIRD_PARTY_NOTICES.md`.

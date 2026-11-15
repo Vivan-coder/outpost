@@ -101,7 +101,7 @@ const input = createInput(canvas);
 const player = new Player(camera, blockers);
 const runner = new TaskRunner();
 const keys = new Set<string>();
-if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, renderer, rig, vr: () => vr, startVr: () => onVrClick(), testWork: () => selfTestWork(), intro: () => intro, work: () => work, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
+if (params.has('debug')) Object.assign(window, { outpost: { sim, player, crew, world, runner, keys, askQuiz, camera, renderer, rig, vr: () => vr, startVr: () => onVrClick(), testWork: () => selfTestWork(), intro: () => intro, work: () => work, stepSim: (sec: number) => { const n = Math.round(sec * level.tickHz); for (let i = 0; i < n && sim.status === 'running'; i++) step(sim, level, 1 / level.tickHz); handleEvents(); }, go: (k: WorkKind, id: number) => startWork(k, { kind: k === 'repair' ? 'repair' : k, mini: 'sequence', moduleId: id, jobId: null, x: 0, z: 0, reach: 9 } as TaskTarget) } });
 
 type Target =
   | { type: 'task'; task: TaskTarget; name: string }

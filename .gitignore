@@ -18,3 +18,5 @@ docs/vr-*.log
 *.wav
 *.m4a
 *.flac
+docs/*.log
+docs/prod-check/

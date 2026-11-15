@@ -1,5 +1,7 @@
 # Sources and credits
 
+Outpost is MIT licensed (see `LICENSE`). Licence notices for third-party code and assets are in `docs/THIRD_PARTY_NOTICES.md`.
+
 ## NASA data
 
 | Used for | Dataset / page | URL |
