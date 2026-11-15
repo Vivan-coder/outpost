@@ -19,6 +19,35 @@ const results = [];
 const check = (name, ok, detail) => { results.push({ name, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' - ' + detail : ''}`); };
 const sh = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 28 });
 
+// 0. MUSIC GUARDRAIL: the submission video must contain only the generated music, never a third-party song
+{
+  const overrides = fs.readdirSync(here).filter((f) => /^music-override\./i.test(f));
+  check('MUSIC GUARDRAIL: no third-party music file in tools/trailer/', overrides.length === 0 && !cfg.musicFile, overrides.length || cfg.musicFile ? 'FOUND ' + (overrides.join(', ') || cfg.musicFile) + '. Move it out of tools/trailer/ and run: node tools/trailer/compose.mjs <take>. The submission video must never contain third-party music.' : 'none');
+  const srcFile = path.join(out, 'audio-source.json');
+  const src = fs.existsSync(srcFile) ? JSON.parse(fs.readFileSync(srcFile, 'utf8')) : null;
+  check('MUSIC GUARDRAIL: the export was composed with the generated music', !!src && src.source === 'generated', src ? 'source=' + src.source : 'no audio-source.json: run compose first');
+  // regenerate the (deterministic) generated mix and compare hashes
+  const tmpWav = path.join(out, '_regen-music.wav');
+  const gen = spawnSync('python', [path.join(here, 'music.py'), path.join(root, 'src/trailer/trailer.timeline.json'), tmpWav], { encoding: 'utf8' });
+  const { createHash } = await import('node:crypto');
+  const sha = (f) => createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+  const regen = gen.status === 0 ? sha(tmpWav) : null;
+  check('MUSIC GUARDRAIL: the mix used equals a fresh generated mix (SHA-256)', !!src && !!regen && src.mixSha256 === regen, regen ? 'generated ' + regen.slice(0, 12) + '... recorded ' + (src ? src.mixSha256.slice(0, 12) : '-') + '...' : 'could not run music.py');
+  // the audio inside the MP4 must follow the generated track's loudness shape (correlation of 0.5 s RMS envelopes)
+  const env = (file, extra) => { const r = spawnSync(ff, ['-v', 'error', '-i', file, ...extra, '-ac', '1', '-ar', '8000', '-f', 'f32le', '-'], { maxBuffer: 1 << 28 }); const a = new Float32Array(r.stdout.buffer, r.stdout.byteOffset, Math.floor(r.stdout.length / 4)); const n = Math.floor(a.length / 4000), o = []; for (let i = 0; i < n; i++) { let s = 0; for (let j = i * 4000; j < (i + 1) * 4000; j++) s += a[j] * a[j]; o.push(Math.sqrt(s / 4000)); } return o; };
+  let corr = NaN;
+  if (regen) {
+    const e1 = env(path.join(out, 'outpost-trailer-1080p.mp4'), ['-vn']), e2 = env(tmpWav, []);
+    const m = Math.min(e1.length, e2.length), a1 = e1.slice(0, m), a2 = e2.slice(0, m);
+    const mean = (x) => x.reduce((p, q) => p + q, 0) / x.length, m1 = mean(a1), m2 = mean(a2);
+    let num = 0, d1 = 0, d2 = 0;
+    for (let i = 0; i < m; i++) { num += (a1[i] - m1) * (a2[i] - m2); d1 += (a1[i] - m1) ** 2; d2 += (a2[i] - m2) ** 2; }
+    corr = num / Math.sqrt(d1 * d2);
+  }
+  check('MUSIC GUARDRAIL: the audio in the MP4 follows the generated track (envelope correlation > 0.6; generated music scores about 0.8, a third-party song scores near 0)', corr > 0.6, 'correlation ' + (Number.isNaN(corr) ? 'n/a' : corr.toFixed(3)));
+  try { fs.unlinkSync(tmpWav); } catch { /* ignore */ }
+}
+
 // 1. ffprobe
 const probe = JSON.parse(sh(fp, ['-v', 'error', '-show_entries', 'format=duration,size:stream=codec_type,codec_name,width,height,r_frame_rate,pix_fmt,sample_rate,channels,duration,bit_rate', '-of', 'json', V]).stdout);
 const vs = probe.streams.find((s) => s.codec_type === 'video'), as = probe.streams.find((s) => s.codec_type === 'audio');

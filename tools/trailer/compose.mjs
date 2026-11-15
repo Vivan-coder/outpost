@@ -47,4 +47,8 @@ const base = ['-y', '-v', 'error', '-i', footage, '-loop', '1', '-framerate', '3
 run(ff, [...base, '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-pix_fmt', 'yuv420p', '-r', '30', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', path.join(out, 'outpost-trailer-1080p.mp4')]);
 run(ff, ['-y', '-v', 'error', '-i', path.join(out, 'outpost-trailer-1080p.mp4'), '-vf', 'scale=1280:720:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-maxrate', '3000k', '-bufsize', '6000k', '-pix_fmt', 'yuv420p', '-r', '30', '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-movflags', '+faststart', path.join(out, 'outpost-trailer-720p.mp4')]);
 run(ff, ['-y', '-v', 'error', '-ss', '19.6', '-i', path.join(out, 'outpost-trailer-1080p.mp4'), '-frames:v', '1', path.join(out, 'outpost-trailer-thumbnail.png')]);
-console.log('composed from take', take);
+// Record the audio source so trailer:check can prove the submission video has only the generated music
+import { createHash } from 'node:crypto';
+const sha = (f) => createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+fs.writeFileSync(path.join(out, 'audio-source.json'), JSON.stringify({ source: custom ? 'override' : 'generated', overrideFile: custom ? path.basename(custom) : null, mixSha256: sha(path.join(out, 'music.wav')), video: 'outpost-trailer-1080p.mp4', composedAt: new Date().toISOString() }, null, 2));
+console.log('composed from take', take, custom ? '(THIRD-PARTY MUSIC: not for the submission)' : '(generated music)');

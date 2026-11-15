@@ -1,0 +1,21 @@
+
+> outpost@0.0.1 test:vr
+> node tests/vr.test.mjs
+
+PASS  Enter VR button appears when immersive-vr is supported 
+PASS  XR session started and both eyes render (two cameras with separate viewports) {"n":2,"vp":[[0,0,1280,720],[640,0,0,720]]}
+PASS  Post-processing is bypassed inside VR 
+PASS  Teleport lands on open floor and moves the player {"from":{"x":-0.03150000050663948,"z":1.5},"to":[0.25,-1.3129356409227009]}
+PASS  Teleport is refused when the target is on the far side of a wall {"ok":false,"x":0,"z":0}
+PASS  Snap turn rotates by 30 degrees yaw 0.00 -> -0.52
+PASS  Wrist panel is on the left controller see 04-wrist-panel.png
+PASS  Menu panel opens with the left controller button 
+PASS  A menu button is clicked with the controller ray and trigger (Resume closes the menu) 
+PASS  Holding the trigger on the panel opens the work panel in front of the player (camera does not move) 
+PASS  Sweeping the controller over the panel wipes the dust clean 95%
+PASS  The cleaning task finishes and counts as a completed job {"before":0,"after":{"jobs":1,"dust":0.0008495274151861668}}
+PASS  The storm warning starts while in VR (shown on the wrist panel) {"phase":"warning","banner":"SOLAR STORM in 86 s. Get everyone into the shelter."}
+PASS  Leaving VR returns to the normal desktop view 
+PASS  No console errors during the whole run 
+
+15/15 checks passed
